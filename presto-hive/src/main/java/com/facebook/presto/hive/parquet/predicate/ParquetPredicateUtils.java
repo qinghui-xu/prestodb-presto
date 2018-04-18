@@ -27,6 +27,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 import io.airlift.slice.Slice;
+import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector;
 import parquet.column.ColumnDescriptor;
 import parquet.column.Encoding;
 import parquet.column.statistics.Statistics;
@@ -83,7 +84,13 @@ public final class ParquetPredicateUtils
 
         ImmutableMap.Builder<ColumnDescriptor, Domain> predicate = ImmutableMap.builder();
         for (Entry<HiveColumnHandle, Domain> entry : effectivePredicate.getDomains().get().entrySet()) {
-            Optional<RichColumnDescriptor> descriptor = getDescriptor(fileSchema, requestedSchema, ImmutableList.of(entry.getKey().getName()));
+            HiveColumnHandle columnHandle = entry.getKey();
+            // skip looking up predicates for complex types as Parquet only stores stats for primitives
+            if (!columnHandle.getHiveType().getCategory().equals(ObjectInspector.Category.PRIMITIVE)) {
+                continue;
+            }
+
+            Optional<RichColumnDescriptor> descriptor = getDescriptor(fileSchema, requestedSchema, ImmutableList.of(columnHandle.getName()));
             if (descriptor.isPresent()) {
                 predicate.put(descriptor.get(), entry.getValue());
             }
