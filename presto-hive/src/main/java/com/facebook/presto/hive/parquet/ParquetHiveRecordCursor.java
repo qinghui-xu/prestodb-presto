@@ -16,6 +16,7 @@ package com.facebook.presto.hive.parquet;
 import com.facebook.presto.hive.FileFormatDataSourceStats;
 import com.facebook.presto.hive.HdfsEnvironment;
 import com.facebook.presto.hive.HiveColumnHandle;
+import com.facebook.presto.hive.ParquetHiveRecordCursorStats;
 import com.facebook.presto.hive.parquet.predicate.ParquetPredicate;
 import com.facebook.presto.hive.util.DecimalUtils;
 import com.facebook.presto.spi.PrestoException;
@@ -118,6 +119,7 @@ public class ParquetHiveRecordCursor
     private boolean closed;
 
     private final FileFormatDataSourceStats stats;
+    private final ParquetHiveRecordCursorStats splitStats;
 
     public ParquetHiveRecordCursor(
             HdfsEnvironment hdfsEnvironment,
@@ -133,13 +135,15 @@ public class ParquetHiveRecordCursor
             TypeManager typeManager,
             boolean predicatePushdownEnabled,
             TupleDomain<HiveColumnHandle> effectivePredicate,
-            FileFormatDataSourceStats stats)
+            FileFormatDataSourceStats stats,
+            ParquetHiveRecordCursorStats splitStats)
     {
         requireNonNull(path, "path is null");
         checkArgument(length >= 0, "length is negative");
         requireNonNull(splitSchema, "splitSchema is null");
         requireNonNull(columns, "columns is null");
         this.stats = requireNonNull(stats, "stats is null");
+        this.splitStats = requireNonNull(splitStats, "split stats is null");
 
         this.totalBytes = length;
 
@@ -366,7 +370,7 @@ public class ParquetHiveRecordCursor
             TaskAttemptContext taskContext = ContextUtil.newTaskAttemptContext(configuration, new TaskAttemptID());
 
             return hdfsEnvironment.doAs(sessionUser, () -> {
-                ParquetRecordReader<FakeParquetRecord> realReader = new PrestoParquetRecordReader(readSupport);
+                ParquetRecordReader<FakeParquetRecord> realReader = new PrestoParquetRecordReader(readSupport, length, splitStats);
                 realReader.initialize(split, taskContext);
                 return realReader;
             });
@@ -397,9 +401,33 @@ public class ParquetHiveRecordCursor
     public class PrestoParquetRecordReader
             extends ParquetRecordReader<FakeParquetRecord>
     {
-        public PrestoParquetRecordReader(PrestoReadSupport readSupport)
+        private final ParquetHiveRecordCursorStats splitStats;
+        private final long splitSize;
+        private long readTimeNanos;
+
+        public PrestoParquetRecordReader(PrestoReadSupport readSupport, long splitSize, ParquetHiveRecordCursorStats splitStats)
         {
             super(readSupport);
+            this.splitStats = splitStats;
+            this.splitSize = splitSize;
+            this.readTimeNanos = 0L;
+        }
+
+        @Override
+        public boolean nextKeyValue() throws IOException, InterruptedException
+        {
+            long readStart = System.nanoTime();
+            boolean result = super.nextKeyValue();
+            readTimeNanos += (System.nanoTime() - readStart);
+            return result;
+        }
+
+        @Override
+        public void close() throws IOException
+        {
+            super.close();
+            // update stats for the split now that we're done
+            splitStats.updateSplitReadStats(splitSize, readTimeNanos);
         }
     }
 

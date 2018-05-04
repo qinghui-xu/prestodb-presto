@@ -78,7 +78,7 @@ public final class HiveTestUtils
     {
         HdfsEnvironment testHdfsEnvironment = createTestHdfsEnvironment(hiveClientConfig);
         return ImmutableSet.<HiveRecordCursorProvider>builder()
-                .add(new ParquetRecordCursorProvider(hiveClientConfig, testHdfsEnvironment, new FileFormatDataSourceStats()))
+                .add(new ParquetRecordCursorProvider(hiveClientConfig, testHdfsEnvironment, new FileFormatDataSourceStats(), new ParquetHiveRecordCursorStats()))
                 .add(new GenericHiveRecordCursorProvider(testHdfsEnvironment))
                 .build();
     }

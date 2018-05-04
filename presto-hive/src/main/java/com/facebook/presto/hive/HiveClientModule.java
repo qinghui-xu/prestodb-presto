@@ -110,6 +110,9 @@ public class HiveClientModule
         binder.bind(FileFormatDataSourceStats.class).in(Scopes.SINGLETON);
         newExporter(binder).export(FileFormatDataSourceStats.class).as(generatedNameOf(FileFormatDataSourceStats.class, connectorId));
 
+        binder.bind(ParquetHiveRecordCursorStats.class).in(Scopes.SINGLETON);
+        newExporter(binder).export(ParquetHiveRecordCursorStats.class).as(generatedNameOf(ParquetHiveRecordCursorStats.class, connectorId));
+
         Multibinder<HivePageSourceFactory> pageSourceFactoryBinder = newSetBinder(binder, HivePageSourceFactory.class);
         pageSourceFactoryBinder.addBinding().to(OrcPageSourceFactory.class).in(Scopes.SINGLETON);
         pageSourceFactoryBinder.addBinding().to(DwrfPageSourceFactory.class).in(Scopes.SINGLETON);
