@@ -559,7 +559,8 @@ public class TestHiveFileFormats
                 true);
     }
 
-    @Test
+    // Currently out-of-order fields in Parquet structs isn't supported
+    @Test(expectedExceptions = PrestoException.class)
     public void testParquetStructFieldOrderChanged()
             throws Exception
     {
@@ -584,7 +585,8 @@ public class TestHiveFileFormats
                 true);
     }
 
-    @Test
+    // Currently out-of-order fields in Parquet structs isn't supported
+    @Test(expectedExceptions = PrestoException.class)
     public void testParquetStructFieldOrderChangedWithExtraFields()
             throws Exception
     {

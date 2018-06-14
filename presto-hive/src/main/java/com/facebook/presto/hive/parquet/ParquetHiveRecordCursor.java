@@ -23,7 +23,6 @@ import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.spi.RecordCursor;
 import com.facebook.presto.spi.block.Block;
 import com.facebook.presto.spi.block.BlockBuilder;
-import com.facebook.presto.spi.block.InterleavedBlockBuilder;
 import com.facebook.presto.spi.predicate.TupleDomain;
 import com.facebook.presto.spi.type.DecimalType;
 import com.facebook.presto.spi.type.Decimals;
@@ -61,7 +60,6 @@ import parquet.schema.PrimitiveType;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.math.BigInteger;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -69,6 +67,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Properties;
+import java.util.stream.Collectors;
 
 import static com.facebook.presto.hive.HiveColumnHandle.ColumnType.REGULAR;
 import static com.facebook.presto.hive.HiveErrorCode.HIVE_CANNOT_OPEN_SPLIT;
@@ -806,10 +805,6 @@ public class ParquetHiveRecordCursor
         private BlockBuilder nullBuilder; // used internally when builder is set to null
         private BlockBuilder currentEntryBuilder;
 
-        private int[] converterIndexes;
-        private List<Type> outOfOrderFieldTypes;
-        private BlockBuilder outOfOrderBlockBuilder; // a tmp builder for fields out of order
-
         private List<IndexedBlockConverter> createConverters(String columnName, List<Type> prestoTypeParameters, List<parquet.schema.Type> fieldTypes, TypeManager typeManager)
         {
             ImmutableList.Builder<IndexedBlockConverter> converters = ImmutableList.builder();
@@ -849,24 +844,17 @@ public class ParquetHiveRecordCursor
                     prevFieldIndex = fieldInformation.getIndex();
                 }
             }
-            // When reading parquet files, we need to pass converters and parquet types in parquet schema fields order.
-            // After getting the parquet values, we need to build presto blocks in metastore schema fields order.
-            List<IndexedBlockConverter> converters = builder.build();
-            if (outOfOrder) {
-                ImmutableList.Builder<Type> types = ImmutableList.builder();
-                converterIndexes = new int[parquetFieldCount];
-                for (int i = 0, tmpIndex = 0; i < parquetFieldCount; i++) {
-                    IndexedBlockConverter converter = converters.get(i);
-                    converterIndexes[i] = converter.getFieldIndex();
-                    if (converterIndexes[i] < 0) {
-                        continue;
-                    }
-                    converter.setFieldIndex(tmpIndex++);
-                    types.add(converter.getType());
-                }
-                outOfOrderFieldTypes = types.build();
-            }
-            return converters;
+            checkArgument(
+                    !outOfOrder,
+                    "Out of order fields in struct column: %s\n" +
+                            "Hive type details: %s\n" +
+                            "Parquet type details: %s", columnName, prestoType.toString(),
+                    fieldTypes
+                            .stream()
+                            .map(parquet.schema.Type::toString)
+                            .collect(Collectors.joining(", ")));
+
+            return builder.build();
         }
 
         public ParquetStructConverter(Type prestoType, String columnName, GroupType entryType, int fieldIndex, boolean useNames, TypeManager typeManager)
@@ -913,9 +901,6 @@ public class ParquetHiveRecordCursor
         public void beforeValue(BlockBuilder builder)
         {
             this.builder = builder;
-            if (outOfOrderFieldTypes != null) {
-                outOfOrderBlockBuilder = new InterleavedBlockBuilder(outOfOrderFieldTypes, null, NULL_BUILDER_POSITIONS_THRESHOLD);
-            }
         }
 
         @Override
@@ -933,12 +918,7 @@ public class ParquetHiveRecordCursor
                 }
                 currentEntryBuilder = builder;
             }
-            if (outOfOrderBlockBuilder != null) {
-                currentEntryBuilder = outOfOrderBlockBuilder;
-            }
-            else {
-                currentEntryBuilder = currentEntryBuilder.beginBlockEntry();
-            }
+            currentEntryBuilder = currentEntryBuilder.beginBlockEntry();
 
             for (IndexedBlockConverter converter : converters) {
                 converter.beforeValue(currentEntryBuilder);
@@ -951,29 +931,7 @@ public class ParquetHiveRecordCursor
             for (BlockConverter converter : converters) {
                 converter.afterValue();
             }
-            if (outOfOrderBlockBuilder != null) {
-                if (builder == null) {
-                    currentEntryBuilder = nullBuilder;
-                }
-                else {
-                    currentEntryBuilder = builder;
-                }
 
-                currentEntryBuilder = currentEntryBuilder.beginBlockEntry();
-                List<IndexedBlockConverter> indexedConverters = new ArrayList<>(converters);
-                indexedConverters.sort((IndexedBlockConverter converter1, IndexedBlockConverter converter2)->Integer.compare(converterIndexes[converter1.getFieldIndex()], converterIndexes[converter2.getFieldIndex()]));
-                int positionCount = outOfOrderBlockBuilder.getPositionCount();
-                for (int i = 0; i < converterIndexes.length; i++) {
-                    int position = indexedConverters.get(i).getFieldIndex();
-                    if (converterIndexes[position] < 0 || position >= positionCount) {
-                        continue;
-                    }
-                    while (currentEntryBuilder.getPositionCount() < converterIndexes[position]) {
-                        currentEntryBuilder.appendNull();
-                    }
-                    outOfOrderBlockBuilder.writePositionTo(position, currentEntryBuilder);
-                }
-            }
             int fieldCount = rowType.getTypeParameters().size();
             while (currentEntryBuilder.getPositionCount() < fieldCount) {
                 currentEntryBuilder.appendNull();
