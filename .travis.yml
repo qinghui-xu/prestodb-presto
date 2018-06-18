@@ -16,7 +16,8 @@ env:
     - TEST_SPECIFIC_MODULES=presto-accumulo
     - TEST_SPECIFIC_MODULES=presto-cassandra
     - TEST_SPECIFIC_MODULES=presto-hive
-    - TEST_OTHER_MODULES=!presto-tests,!presto-raptor,!presto-accumulo,!presto-cassandra,!presto-hive,!presto-docs,!presto-server,!presto-server-rpm
+    - TEST_SPECIFIC_MODULES=presto-main
+    - TEST_OTHER_MODULES=!presto-tests,!presto-raptor,!presto-accumulo,!presto-cassandra,!presto-hive,!presto-docs,!presto-server,!presto-server-rpm,!presto-main
     - PRODUCT_TESTS_BASIC_ENVIRONMENT=true
     - PRODUCT_TESTS_SPECIFIC_ENVIRONMENT=true
     - HIVE_TESTS=true
@@ -98,11 +99,13 @@ script:
       presto-product-tests/bin/run_on_docker.sh \
         multinode-tls -g smoke,cli,group-by,join,tls
     fi
-  - |
-    if [[ -v PRODUCT_TESTS_SPECIFIC_ENVIRONMENT ]]; then
-      presto-product-tests/bin/run_on_docker.sh \
-        singlenode-mysql -g mysql_connector,mysql
-    fi
+# Running into issues connecting to MySQL in docker container. We also
+# don't use the MySQL connector. Commenting these out for now
+#  - |
+#    if [[ -v PRODUCT_TESTS_SPECIFIC_ENVIRONMENT ]]; then
+#      presto-product-tests/bin/run_on_docker.sh \
+#        singlenode-mysql -g mysql_connector,mysql
+#    fi
   - |
     if [[ -v PRODUCT_TESTS_SPECIFIC_ENVIRONMENT ]]; then
       presto-product-tests/bin/run_on_docker.sh \
@@ -129,9 +132,15 @@ before_cache:
   # Make the cache stable between builds by removing build output
   - rm -rf $HOME/.m2/repository/com/facebook
 
+# Slack update to Criteo's internal boss-db channel
 notifications:
-  slack:
-    secure: V5eyoGShxFoCcYJcp858vf/T6gC9KeMxL0C1EElcpZRcKBrIVZzvhek3HLHxZOxlghqnvNVsyDtU3u5orkEaAXeXj5c2dN+4XBsAB9oeN5MtQ0Z3VLAhZDqKIW1LzcXrq4DpzM0PkGhjfjum/P94/qFYk0UckPtB6a341AuYRo8=
+    slack: criteo:A7O7RrW6MmxK3ECeKeJBgJXP
+
+# Allow building only master & criteo-master for now
+branches:
+  only:
+  - master
+  - criteo-master
 
 before_deploy:
   - mkdir /tmp/artifacts
