@@ -16,7 +16,7 @@ package io.prestosql.plugin.hive.metastore.thrift;
 import com.google.common.net.HostAndPort;
 import io.prestosql.plugin.hive.HiveClientConfig;
 import io.prestosql.plugin.hive.authentication.NoHiveMetastoreAuthentication;
-import org.apache.thrift.TException;
+import org.apache.thrift.transport.TTransportException;
 
 import java.util.Objects;
 
@@ -36,9 +36,13 @@ public class TestingHiveCluster
 
     @Override
     public HiveMetastoreClient createMetastoreClient()
-            throws TException
     {
-        return new HiveMetastoreClientFactory(config, new NoHiveMetastoreAuthentication()).create(address);
+        try {
+            return new HiveMetastoreClientFactory(config, new NoHiveMetastoreAuthentication()).create(address);
+        }
+        catch (TTransportException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     @Override

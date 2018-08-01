@@ -55,6 +55,7 @@
         <dep.tempto.version>1.50</dep.tempto.version>
         <dep.testng.version>6.10</dep.testng.version>
         <dep.assertj-core.version>3.8.0</dep.assertj-core.version>
+        <dep.orbitz-consul.version>1.1.1</dep.orbitz-consul.version>
         <dep.logback.version>1.2.3</dep.logback.version>
         <dep.jmxutils.version>1.20</dep.jmxutils.version>
         <dep.gcs.version>1.9.10</dep.gcs.version>
@@ -737,6 +738,12 @@
                 <groupId>org.antlr</groupId>
                 <artifactId>antlr4-runtime</artifactId>
                 <version>${dep.antlr.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>com.orbitz.consul</groupId>
+                <artifactId>consul-client</artifactId>
+                <version>${dep.orbitz-consul.version}</version>
             </dependency>
 
             <dependency>

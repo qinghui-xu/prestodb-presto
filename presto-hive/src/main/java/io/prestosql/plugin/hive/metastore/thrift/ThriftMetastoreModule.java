@@ -37,8 +37,9 @@ public class ThriftMetastoreModule
     protected void setup(Binder binder)
     {
         binder.bind(HiveMetastoreClientFactory.class).in(Scopes.SINGLETON);
-        binder.bind(HiveCluster.class).to(StaticHiveCluster.class).in(Scopes.SINGLETON);
-        configBinder(binder).bindConfig(StaticMetastoreConfig.class);
+
+        binder.bind(HiveCluster.class).to(DiscoveryHiveCluster.class).in(Scopes.SINGLETON);
+        configBinder(binder).bindConfig(DiscoveryHiveClusterConfig.class);
         configBinder(binder).bindConfig(ThriftHiveMetastoreConfig.class);
 
         binder.bind(HiveMetastore.class).to(ThriftHiveMetastore.class).in(Scopes.SINGLETON);

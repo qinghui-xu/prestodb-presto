@@ -14,6 +14,7 @@
 package io.prestosql.plugin.hive.metastore.thrift;
 
 import com.google.common.net.HostAndPort;
+import io.prestosql.spi.PrestoException;
 import org.apache.thrift.TException;
 
 import javax.inject.Inject;
@@ -25,6 +26,7 @@ import java.util.List;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Strings.isNullOrEmpty;
+import static io.prestosql.plugin.hive.HiveErrorCode.HIVE_METASTORE_ERROR;
 import static java.util.Objects.requireNonNull;
 import static java.util.stream.Collectors.toList;
 
@@ -63,7 +65,6 @@ public class StaticHiveCluster
      */
     @Override
     public HiveMetastoreClient createMetastoreClient()
-            throws TException
     {
         List<HostAndPort> metastores = new ArrayList<>(addresses);
         Collections.shuffle(metastores.subList(1, metastores.size()));
@@ -81,10 +82,10 @@ public class StaticHiveCluster
                 lastException = e;
             }
         }
-        throw new TException("Failed connecting to Hive metastore: " + addresses, lastException);
+        throw new PrestoException(HIVE_METASTORE_ERROR, "Failed connecting to Hive metastore: " + addresses, lastException);
     }
 
-    private static URI checkMetastoreUri(URI uri)
+    protected static URI checkMetastoreUri(URI uri)
     {
         requireNonNull(uri, "metastoreUri is null");
         String scheme = uri.getScheme();

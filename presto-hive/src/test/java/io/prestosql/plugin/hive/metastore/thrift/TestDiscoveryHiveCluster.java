@@ -15,7 +15,6 @@ package io.prestosql.plugin.hive.metastore.thrift;
 
 import io.airlift.units.Duration;
 import io.prestosql.spi.PrestoException;
-import org.apache.thrift.TException;
 import org.testng.annotations.Test;
 
 import java.util.List;
@@ -28,28 +27,25 @@ import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.fail;
 
-public class TestStaticHiveCluster
+public class TestDiscoveryHiveCluster
 {
     private static final HiveMetastoreClient DEFAULT_CLIENT = createFakeMetastoreClient();
     private static final HiveMetastoreClient FALLBACK_CLIENT = createFakeMetastoreClient();
 
-    private static final StaticMetastoreConfig CONFIG_WITH_FALLBACK = new StaticMetastoreConfig()
+    private static final DiscoveryHiveClusterConfig CONFIG_WITH_FALLBACK = new DiscoveryHiveClusterConfig()
             .setMetastoreUris("thrift://default:8080,thrift://fallback:8090,thrift://fallback2:8090");
 
-    private static final StaticMetastoreConfig CONFIG_WITHOUT_FALLBACK = new StaticMetastoreConfig()
+    private static final DiscoveryHiveClusterConfig CONFIG_WITHOUT_FALLBACK = new DiscoveryHiveClusterConfig()
             .setMetastoreUris("thrift://default:8080");
 
-    private static final StaticMetastoreConfig CONFIG_WITH_FALLBACK_WITH_USER = new StaticMetastoreConfig()
-            .setMetastoreUris("thrift://default:8080,thrift://fallback:8090,thrift://fallback2:8090")
-            .setMetastoreUsername("presto");
+    private static final DiscoveryHiveClusterConfig CONFIG_WITH_FALLBACK_WITH_CONSUL = new DiscoveryHiveClusterConfig()
+            .setMetastoreUris("consul://default:8080/hive-metastore,thrift://fallback:8090,thrift://fallback2:8090");
 
-    private static final StaticMetastoreConfig CONFIG_WITHOUT_FALLBACK_WITH_USER = new StaticMetastoreConfig()
-            .setMetastoreUris("thrift://default:8080")
-            .setMetastoreUsername("presto");
+    private static final DiscoveryHiveClusterConfig CONFIG_WITHOUT_FALLBACK_WITH_CONSUL = new DiscoveryHiveClusterConfig()
+            .setMetastoreUris("consul://default:8080/hive-metastore");
 
     @Test
     public void testDefaultHiveMetastore()
-            throws TException
     {
         HiveCluster cluster = createHiveCluster(CONFIG_WITH_FALLBACK, singletonList(DEFAULT_CLIENT));
         assertEquals(cluster.createMetastoreClient(), DEFAULT_CLIENT);
@@ -57,9 +53,9 @@ public class TestStaticHiveCluster
 
     @Test
     public void testFallbackHiveMetastore()
-            throws TException
     {
-        HiveCluster cluster = createHiveCluster(CONFIG_WITH_FALLBACK, asList(null, null, FALLBACK_CLIENT));
+        HiveCluster cluster = createHiveCluster(CONFIG_WITH_FALLBACK, asList(null, null, FALLBACK_CLIENT, null, null, FALLBACK_CLIENT));
+        assertEquals(cluster.createMetastoreClient(), FALLBACK_CLIENT);
         assertEquals(cluster.createMetastoreClient(), FALLBACK_CLIENT);
     }
 
@@ -67,29 +63,29 @@ public class TestStaticHiveCluster
     public void testFallbackHiveMetastoreFails()
     {
         HiveCluster cluster = createHiveCluster(CONFIG_WITH_FALLBACK, asList(null, null, null));
-        assertCreateClientFails(cluster, "Failed connecting to Hive metastore: [default:8080, fallback:8090, fallback2:8090]");
+        assertCreateClientFails(cluster, "Failed connecting to Hive metastore using any of the URI's: [thrift://default:8080, thrift://fallback:8090, thrift://fallback2:8090]");
     }
 
     @Test
     public void testMetastoreFailedWithoutFallback()
     {
         HiveCluster cluster = createHiveCluster(CONFIG_WITHOUT_FALLBACK, singletonList(null));
-        assertCreateClientFails(cluster, "Failed connecting to Hive metastore: [default:8080]");
+        assertCreateClientFails(cluster, "Failed connecting to Hive metastore using any of the URI's: [thrift://default:8080]");
     }
 
     @Test
-    public void testFallbackHiveMetastoreWithHiveUser()
-            throws TException
+    public void testFallbackHiveMetastoreWithConsul()
     {
-        HiveCluster cluster = createHiveCluster(CONFIG_WITH_FALLBACK_WITH_USER, asList(null, null, FALLBACK_CLIENT));
+        HiveCluster cluster = createHiveCluster(CONFIG_WITH_FALLBACK_WITH_CONSUL, asList(null, FALLBACK_CLIENT, null, FALLBACK_CLIENT));
+        assertEquals(cluster.createMetastoreClient(), FALLBACK_CLIENT);
         assertEquals(cluster.createMetastoreClient(), FALLBACK_CLIENT);
     }
 
     @Test
-    public void testMetastoreFailedWithoutFallbackWithHiveUser()
+    public void testMetastoreFailedWithoutFallbackWithConsul()
     {
-        HiveCluster cluster = createHiveCluster(CONFIG_WITHOUT_FALLBACK_WITH_USER, singletonList(null));
-        assertCreateClientFails(cluster, "Failed connecting to Hive metastore: [default:8080]");
+        HiveCluster cluster = createHiveCluster(CONFIG_WITHOUT_FALLBACK_WITH_CONSUL, singletonList(null));
+        assertCreateClientFails(cluster, "Failed to resolve Hive metastore addresses: [consul://default:8080/hive-metastore");
     }
 
     private static void assertCreateClientFails(HiveCluster cluster, String message)
@@ -103,9 +99,9 @@ public class TestStaticHiveCluster
         }
     }
 
-    private static HiveCluster createHiveCluster(StaticMetastoreConfig config, List<HiveMetastoreClient> clients)
+    private static HiveCluster createHiveCluster(DiscoveryHiveClusterConfig config, List<HiveMetastoreClient> clients)
     {
-        return new StaticHiveCluster(config, new MockHiveMetastoreClientFactory(Optional.empty(), new Duration(1, SECONDS), clients));
+        return new DiscoveryHiveCluster(config, new MockHiveMetastoreClientFactory(Optional.empty(), new Duration(1, SECONDS), clients));
     }
 
     private static HiveMetastoreClient createFakeMetastoreClient()
