@@ -29,7 +29,6 @@ public class ThriftMetastoreModule
         implements Module
 {
     private final String connectorId;
-
     public ThriftMetastoreModule(String connectorId)
     {
         this.connectorId = requireNonNull(connectorId, "connectorId is null");
@@ -39,8 +38,8 @@ public class ThriftMetastoreModule
     public void configure(Binder binder)
     {
         binder.bind(HiveMetastoreClientFactory.class).in(Scopes.SINGLETON);
-        binder.bind(HiveCluster.class).to(StaticHiveCluster.class).in(Scopes.SINGLETON);
-        configBinder(binder).bindConfig(StaticMetastoreConfig.class);
+        binder.bind(HiveCluster.class).to(DiscoveryHiveCluster.class).in(Scopes.SINGLETON);
+        configBinder(binder).bindConfig(DiscoveryHiveClusterConfig.class);
 
         binder.bind(HiveMetastore.class).to(ThriftHiveMetastore.class).in(Scopes.SINGLETON);
         binder.bind(ExtendedHiveMetastore.class).annotatedWith(ForCachingHiveMetastore.class).to(BridgingHiveMetastore.class).in(Scopes.SINGLETON);
