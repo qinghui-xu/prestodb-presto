@@ -86,7 +86,7 @@ public class StaticHiveCluster
         throw new PrestoException(HIVE_METASTORE_ERROR, "Failed connecting to Hive metastore: " + addresses, lastException);
     }
 
-    private static URI checkMetastoreUri(URI uri)
+    protected static URI checkMetastoreUri(URI uri)
     {
         requireNonNull(uri, "metastoreUri is null");
         String scheme = uri.getScheme();

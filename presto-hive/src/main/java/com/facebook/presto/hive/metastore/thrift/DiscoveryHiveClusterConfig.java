@@ -13,45 +13,39 @@
  */
 package com.facebook.presto.hive.metastore.thrift;
 
+import com.google.common.base.Splitter;
+import com.google.common.collect.ImmutableList;
 import io.airlift.configuration.Config;
 import io.airlift.configuration.ConfigDescription;
 
 import javax.validation.constraints.NotNull;
 
 import java.net.URI;
+import java.util.List;
 
-/*
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+import static com.google.common.collect.Iterables.transform;
+
 public class DiscoveryHiveClusterConfig
 {
-    private URI consulUri;
+    private static final Splitter SPLITTER = Splitter.on(',').trimResults().omitEmptyStrings();
+
+    private List<URI> metastoreUris;
 
     @NotNull
-    public URI getConsulUri()
+    public List<URI> getMetastoreUris()
     {
-        return consulUri;
+        return metastoreUris;
     }
 
     @Config("hive.metastore.uri")
-    @ConfigDescription("Consul URI of the form consul://consul-host:consul-port/service-name")
-    public DiscoveryHiveClusterConfig setConsulUri(String uri)
+    @ConfigDescription("Comma separated list of URI's.  Supports a dynamic consul URI of the form consul://consul-host:consul-port/service-name")
+    public DiscoveryHiveClusterConfig setMetastoreUris(String uris)
     {
-        if (uri == null) {
-            this.consulUri = null;
+        if (uris == null) {
+            this.metastoreUris = null;
             return this;
         }
-        this.consulUri = URI.create(uri);
+        this.metastoreUris = ImmutableList.copyOf(transform(SPLITTER.split(uris), URI::create));
         return this;
     }
 }
