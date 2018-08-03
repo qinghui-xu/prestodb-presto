@@ -82,12 +82,8 @@ public class TestDiscoveryHiveCluster
     @Test
     public void testMetastoreFailedWithoutFallbackWithConsul()
     {
-        try {
-            createHiveCluster(CONFIG_WITHOUT_FALLBACK_WITH_CONSUL, singletonList(null));
-        }
-        catch (PrestoException e) {
-            assertContains(e.getMessage(), "Failed to resolve Hive metastore addresses: [consul://default:8080/hive-metastore");
-        }
+        HiveCluster cluster = createHiveCluster(CONFIG_WITHOUT_FALLBACK_WITH_CONSUL, singletonList(null));
+        assertCreateClientFails(cluster, "Failed to resolve Hive metastore addresses: [consul://default:8080/hive-metastore");
     }
 
     private static void assertCreateClientFails(HiveCluster cluster, String message)

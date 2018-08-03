@@ -59,8 +59,6 @@ public class DiscoveryHiveCluster
     {
         this.clientFactory = clientFactory;
         this.unresolvedUris = config.getMetastoreUris();
-        //Trigger first resolution to fail fast.
-        resolvedUriSupplier.get();
     }
 
     @Override
