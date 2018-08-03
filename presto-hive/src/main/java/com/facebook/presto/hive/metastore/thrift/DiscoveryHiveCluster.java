@@ -59,6 +59,16 @@ public class DiscoveryHiveCluster
     {
         this.clientFactory = clientFactory;
         this.unresolvedUris = config.getMetastoreUris();
+        //basic error checks
+        requireNonNull(unresolvedUris, "metastoreUris is null");
+        checkArgument(!unresolvedUris.isEmpty(), "metastoreUris must specify at least one URI");
+        for (URI uri : unresolvedUris) {
+            String scheme = uri.getScheme();
+            checkArgument(!isNullOrEmpty(scheme), "metastoreUri scheme is missing: %s", uri);
+            if (!scheme.equalsIgnoreCase("consul")) {
+                StaticHiveCluster.checkMetastoreUri(uri);
+            }
+        }
     }
 
     @Override
@@ -83,8 +93,6 @@ public class DiscoveryHiveCluster
 
     private List<HostAndPort> resolveUris()
     {
-        requireNonNull(unresolvedUris, "metastoreUris is null");
-        checkArgument(!unresolvedUris.isEmpty(), "metastoreUris must specify at least one URI");
         List<HostAndPort> results = new LinkedList<HostAndPort>();
         for (URI uri : unresolvedUris) {
             String scheme = uri.getScheme();
