@@ -20,6 +20,7 @@ import com.facebook.presto.spi.connector.classloader.ClassLoaderSafeConnectorMet
 import com.facebook.presto.spi.connector.classloader.ClassLoaderSafeConnectorSplitManager;
 import com.facebook.presto.testing.TestingConnectorContext;
 import com.google.common.collect.ImmutableMap;
+import org.testng.annotations.Test;
 
 import java.util.Map;
 
@@ -30,8 +31,7 @@ import static org.testng.Assert.fail;
 
 public class TestHiveConnectorFactory
 {
-    //The error messages have changed with the new metastore uri scheme.
-    //@Test
+    @Test
     public void testGetClient()
     {
         assertCreateConnector("thrift://localhost:1234");

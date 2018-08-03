@@ -28,18 +28,19 @@ import org.apache.thrift.transport.TTransportException;
 import javax.inject.Inject;
 
 import java.net.URI;
-import java.util.Collections;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 
 import static com.facebook.presto.hive.HiveErrorCode.HIVE_METASTORE_ERROR;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Strings.isNullOrEmpty;
+import static java.util.Objects.requireNonNull;
 import static java.util.stream.Collectors.toList;
 
 /**
- * This is like the standard StaticHiveCluster except it supports a dynamic metastore lookup based on:
+ * This is like the standard StaticHiveCluster except it supports a dynamic metastore lookup based on URI format:
  * consul://consul-host:consul-port/service-name
  */
 public class DiscoveryHiveCluster
@@ -58,55 +59,68 @@ public class DiscoveryHiveCluster
     {
         this.clientFactory = clientFactory;
         this.unresolvedUris = config.getMetastoreUris();
+        //Trigger first resolution to fail fast.
+        resolvedUriSupplier.get();
     }
 
     @Override
     public HiveMetastoreClient createMetastoreClient()
     {
-        HostAndPort chosen = null;
-        synchronized (this) {
-            List<HostAndPort> resolvedUris = resolvedUriSupplier.get();
-            Collections.shuffle(resolvedUris);
-            chosen = resolvedUris.get(0);
-        }
+        List<HostAndPort> resolvedUris = resolvedUriSupplier.get();
+        Exception lastException = null;
+        while (resolvedUris.size() > 0) {
+            int index = ThreadLocalRandom.current().nextInt(resolvedUris.size());
+            HostAndPort chosen = resolvedUris.remove(index);
 
-        log.info("Connecting to metastore %s:%d", chosen.getHost(), chosen.getPort());
-        try {
-            return clientFactory.create(chosen);
+            log.info("Connecting to metastore %s:%d", chosen.getHost(), chosen.getPort());
+            try {
+                return clientFactory.create(chosen);
+            }
+            catch (TTransportException e) {
+                lastException = e;
+            }
         }
-        catch (TTransportException e) {
-            throw new PrestoException(HIVE_METASTORE_ERROR, "Failed connecting to Hive metastore", e);
-        }
+        throw new PrestoException(HIVE_METASTORE_ERROR, "Failed connecting to Hive metastore: " + unresolvedUris, lastException);
     }
 
     private List<HostAndPort> resolveUris()
     {
-        synchronized (this) {
-            List<HostAndPort> results = new LinkedList<HostAndPort>();
-            for (URI uri : unresolvedUris) {
-                if (uri.getScheme().equalsIgnoreCase("consul")) {
+        requireNonNull(unresolvedUris, "metastoreUris is null");
+        checkArgument(!unresolvedUris.isEmpty(), "metastoreUris must specify at least one URI");
+        List<HostAndPort> results = new LinkedList<HostAndPort>();
+        for (URI uri : unresolvedUris) {
+            String scheme = uri.getScheme();
+            checkArgument(!isNullOrEmpty(scheme), "metastoreUri scheme is missing: %s", uri);
+            if (scheme.equalsIgnoreCase("consul")) {
+                try {
                     results.addAll(resolveUsingConsul(uri));
                 }
-                else {
-                    StaticHiveCluster.checkMetastoreUri(uri);
-                    results.add(HostAndPort.fromParts(uri.getHost(), uri.getPort()));
+                catch (Exception e) {
+                    log.warn("Error resolving consul uri: " + uri, e);
                 }
             }
-            return results;
+            else {
+                StaticHiveCluster.checkMetastoreUri(uri);
+                results.add(HostAndPort.fromParts(uri.getHost(), uri.getPort()));
+            }
         }
+        if (results.size() == 0) {
+            throw new PrestoException(HIVE_METASTORE_ERROR, "Failed to resolve Hive metastore addresses: " + unresolvedUris);
+        }
+        return results;
     }
 
     private List<HostAndPort> resolveUsingConsul(URI consulUri)
     {
         log.info("Resolving consul uri : " + consulUri);
+        // check arguments
+        checkArgument(!isNullOrEmpty(consulUri.getHost()), "Unspecified consul host, please use consul://consul-host:consul-port/service-name");
+        checkArgument(consulUri.getPort() != -1, "Unspecified consul port, please use consul://consul-host:consul-port/service-name");
+        checkArgument(!isNullOrEmpty(consulUri.getPath()), "Unspecified consul service, please use consul://consul-host:consul-port/service-name");
+
         String consulHost = consulUri.getHost();
         String service = consulUri.getPath().substring(1);  //strip leading slash
         int consulPort = consulUri.getPort();
-
-        // check arguments
-        checkArgument(!isNullOrEmpty(consulHost), "Unspecified consul host, please use consul://consul-host:consul-port/service-name");
-        checkArgument(consulPort != -1, "Unspecified consul port, please use consul://consul-host:consul-port/service-name");
-        checkArgument(!isNullOrEmpty(service), "Unspecified consul service, please use consul://consul-host:consul-port/service-name");
 
         HostAndPort hostAndPort = HostAndPort.fromParts(consulHost, consulPort);
         Consul consul = Consul.builder().withHostAndPort(hostAndPort).build();
