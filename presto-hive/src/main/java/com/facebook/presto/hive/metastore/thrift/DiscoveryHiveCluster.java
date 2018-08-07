@@ -49,6 +49,7 @@ public class DiscoveryHiveCluster
     private static final Logger log = Logger.get(DiscoveryHiveCluster.class);
     private final HiveMetastoreClientFactory clientFactory;
     private final List<URI> unresolvedUris;
+    private final String metastoreUsername;
     private final Supplier<List<HostAndPort>> resolvedUriSupplier = Suppliers.memoizeWithExpiration(
             this::resolveUris,
             3,
@@ -58,6 +59,7 @@ public class DiscoveryHiveCluster
     public DiscoveryHiveCluster(DiscoveryHiveClusterConfig config, HiveMetastoreClientFactory clientFactory)
     {
         this.clientFactory = clientFactory;
+        this.metastoreUsername = config.getMetastoreUsername();
         this.unresolvedUris = config.getMetastoreUris();
         //basic error checks
         requireNonNull(unresolvedUris, "metastoreUris is null");
@@ -82,9 +84,13 @@ public class DiscoveryHiveCluster
 
             log.info("Connecting to metastore %s:%d", chosen.getHost(), chosen.getPort());
             try {
-                return clientFactory.create(chosen);
+                HiveMetastoreClient client = clientFactory.create(chosen);
+                if (!isNullOrEmpty(metastoreUsername)) {
+                    client.setUGI(metastoreUsername);
+                }
+                return client;
             }
-            catch (TTransportException e) {
+            catch (Exception e) {
                 lastException = e;
             }
         }

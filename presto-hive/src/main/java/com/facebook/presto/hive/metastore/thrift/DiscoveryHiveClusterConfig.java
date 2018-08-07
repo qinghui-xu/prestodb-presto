@@ -30,6 +30,7 @@ public class DiscoveryHiveClusterConfig
     private static final Splitter SPLITTER = Splitter.on(',').trimResults().omitEmptyStrings();
 
     private List<URI> metastoreUris;
+    private String metastoreUsername;
 
     @NotNull
     public List<URI> getMetastoreUris()
@@ -46,6 +47,19 @@ public class DiscoveryHiveClusterConfig
             return this;
         }
         this.metastoreUris = ImmutableList.copyOf(transform(SPLITTER.split(uris), URI::create));
+        return this;
+    }
+
+    public String getMetastoreUsername()
+    {
+        return metastoreUsername;
+    }
+
+    @Config("hive.metastore.username")
+    @ConfigDescription("Optional username for accessing the Hive metastore")
+    public DiscoveryHiveClusterConfig setMetastoreUsername(String metastoreUsername)
+    {
+        this.metastoreUsername = metastoreUsername;
         return this;
     }
 }
