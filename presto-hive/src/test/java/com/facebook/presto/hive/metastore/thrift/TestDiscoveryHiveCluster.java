@@ -54,7 +54,8 @@ public class TestDiscoveryHiveCluster
     @Test
     public void testFallbackHiveMetastore()
     {
-        HiveCluster cluster = createHiveCluster(CONFIG_WITH_FALLBACK, asList(null, null, FALLBACK_CLIENT));
+        HiveCluster cluster = createHiveCluster(CONFIG_WITH_FALLBACK, asList(null, null, FALLBACK_CLIENT, null, null, FALLBACK_CLIENT));
+        assertEquals(cluster.createMetastoreClient(), FALLBACK_CLIENT);
         assertEquals(cluster.createMetastoreClient(), FALLBACK_CLIENT);
     }
 
@@ -62,20 +63,21 @@ public class TestDiscoveryHiveCluster
     public void testFallbackHiveMetastoreFails()
     {
         HiveCluster cluster = createHiveCluster(CONFIG_WITH_FALLBACK, asList(null, null, null));
-        assertCreateClientFails(cluster, "Failed connecting to Hive metastore: [thrift://default:8080, thrift://fallback:8090, thrift://fallback2:8090]");
+        assertCreateClientFails(cluster, "Failed connecting to Hive metastore using any of the URI's: [thrift://default:8080, thrift://fallback:8090, thrift://fallback2:8090]");
     }
 
     @Test
     public void testMetastoreFailedWithoutFallback()
     {
         HiveCluster cluster = createHiveCluster(CONFIG_WITHOUT_FALLBACK, singletonList(null));
-        assertCreateClientFails(cluster, "Failed connecting to Hive metastore: [thrift://default:8080]");
+        assertCreateClientFails(cluster, "Failed connecting to Hive metastore using any of the URI's: [thrift://default:8080]");
     }
 
     @Test
     public void testFallbackHiveMetastoreWithConsul()
     {
-        HiveCluster cluster = createHiveCluster(CONFIG_WITH_FALLBACK_WITH_CONSUL, asList(null, FALLBACK_CLIENT));
+        HiveCluster cluster = createHiveCluster(CONFIG_WITH_FALLBACK_WITH_CONSUL, asList(null, FALLBACK_CLIENT, null, FALLBACK_CLIENT));
+        assertEquals(cluster.createMetastoreClient(), FALLBACK_CLIENT);
         assertEquals(cluster.createMetastoreClient(), FALLBACK_CLIENT);
     }
 

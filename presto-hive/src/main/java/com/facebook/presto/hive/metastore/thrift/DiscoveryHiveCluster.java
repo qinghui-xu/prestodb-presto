@@ -23,11 +23,11 @@ import com.orbitz.consul.HealthClient;
 import com.orbitz.consul.model.ConsulResponse;
 import com.orbitz.consul.model.health.ServiceHealth;
 import io.airlift.log.Logger;
-import org.apache.thrift.transport.TTransportException;
 
 import javax.inject.Inject;
 
 import java.net.URI;
+import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
@@ -77,10 +77,11 @@ public class DiscoveryHiveCluster
     public HiveMetastoreClient createMetastoreClient()
     {
         List<HostAndPort> resolvedUris = resolvedUriSupplier.get();
+        List<HostAndPort> copy = new ArrayList<HostAndPort>(resolvedUris);
         Exception lastException = null;
-        while (resolvedUris.size() > 0) {
-            int index = ThreadLocalRandom.current().nextInt(resolvedUris.size());
-            HostAndPort chosen = resolvedUris.remove(index);
+        while (copy.size() > 0) {
+            int index = ThreadLocalRandom.current().nextInt(copy.size());
+            HostAndPort chosen = copy.remove(index);
 
             log.info("Connecting to metastore %s:%d", chosen.getHost(), chosen.getPort());
             try {
@@ -91,10 +92,11 @@ public class DiscoveryHiveCluster
                 return client;
             }
             catch (Exception e) {
+                log.info("Failed to connect to metastore: " + chosen.toString());
                 lastException = e;
             }
         }
-        throw new PrestoException(HIVE_METASTORE_ERROR, "Failed connecting to Hive metastore: " + unresolvedUris, lastException);
+        throw new PrestoException(HIVE_METASTORE_ERROR, "Failed connecting to Hive metastore using any of the URI's: " + unresolvedUris, lastException);
     }
 
     private List<HostAndPort> resolveUris()
