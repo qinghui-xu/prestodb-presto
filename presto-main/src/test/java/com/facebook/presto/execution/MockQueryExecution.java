@@ -110,6 +110,7 @@ public class MockQueryExecution
                         new DateTime(4),
                         new Duration(6, NANOSECONDS),
                         new Duration(5, NANOSECONDS),
+                        new Duration(31, NANOSECONDS),
                         new Duration(7, NANOSECONDS),
                         new Duration(8, NANOSECONDS),
 
@@ -131,6 +132,7 @@ public class MockQueryExecution
                         new DataSize(19, BYTE),
                         new DataSize(20, BYTE),
                         new DataSize(21, BYTE),
+                        new DataSize(22, BYTE),
 
                         true,
                         new Duration(20, NANOSECONDS),
@@ -153,6 +155,7 @@ public class MockQueryExecution
 
                         ImmutableList.of(),
                         ImmutableList.of()),
+                Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
                 ImmutableMap.of(),
@@ -214,6 +217,12 @@ public class MockQueryExecution
 
     @Override
     public long getUserMemoryReservation()
+    {
+        return memoryUsage;
+    }
+
+    @Override
+    public long getTotalMemoryReservation()
     {
         return memoryUsage;
     }

@@ -22,24 +22,33 @@ import com.facebook.presto.client.NodeVersion;
 import com.facebook.presto.client.ServerInfo;
 import com.facebook.presto.connector.ConnectorManager;
 import com.facebook.presto.connector.system.SystemConnectorModule;
+import com.facebook.presto.cost.AggregationStatsRule;
+import com.facebook.presto.cost.AssignUniqueIdStatsRule;
 import com.facebook.presto.cost.CoefficientBasedStatsCalculator;
 import com.facebook.presto.cost.ComposableStatsCalculator;
+import com.facebook.presto.cost.ComposableStatsCalculator.Rule;
 import com.facebook.presto.cost.CostCalculator;
 import com.facebook.presto.cost.CostCalculator.EstimatedExchanges;
 import com.facebook.presto.cost.CostCalculatorUsingExchanges;
 import com.facebook.presto.cost.CostCalculatorWithEstimatedExchanges;
 import com.facebook.presto.cost.CostComparator;
 import com.facebook.presto.cost.EnforceSingleRowStatsRule;
+import com.facebook.presto.cost.ExchangeStatsRule;
 import com.facebook.presto.cost.FilterStatsCalculator;
 import com.facebook.presto.cost.FilterStatsRule;
+import com.facebook.presto.cost.JoinStatsRule;
 import com.facebook.presto.cost.LimitStatsRule;
 import com.facebook.presto.cost.OutputStatsRule;
 import com.facebook.presto.cost.ProjectStatsRule;
 import com.facebook.presto.cost.ScalarStatsCalculator;
 import com.facebook.presto.cost.SelectingStatsCalculator;
 import com.facebook.presto.cost.SelectingStatsCalculator.New;
+import com.facebook.presto.cost.SemiJoinStatsRule;
+import com.facebook.presto.cost.SimpleFilterProjectSemiJoinStatsRule;
 import com.facebook.presto.cost.StatsCalculator;
+import com.facebook.presto.cost.StatsNormalizer;
 import com.facebook.presto.cost.TableScanStatsRule;
+import com.facebook.presto.cost.UnionStatsRule;
 import com.facebook.presto.cost.ValuesStatsRule;
 import com.facebook.presto.event.query.QueryMonitor;
 import com.facebook.presto.event.query.QueryMonitorConfig;
@@ -104,7 +113,7 @@ import com.facebook.presto.spi.HostAddress;
 import com.facebook.presto.spi.PageIndexerFactory;
 import com.facebook.presto.spi.PageSorter;
 import com.facebook.presto.spi.block.Block;
-import com.facebook.presto.spi.block.BlockEncodingFactory;
+import com.facebook.presto.spi.block.BlockEncoding;
 import com.facebook.presto.spi.block.BlockEncodingSerde;
 import com.facebook.presto.spi.type.Type;
 import com.facebook.presto.spi.type.TypeManager;
@@ -125,6 +134,7 @@ import com.facebook.presto.split.SplitManager;
 import com.facebook.presto.sql.Serialization.ExpressionDeserializer;
 import com.facebook.presto.sql.Serialization.ExpressionSerializer;
 import com.facebook.presto.sql.Serialization.FunctionCallDeserializer;
+import com.facebook.presto.sql.SqlEnvironmentConfig;
 import com.facebook.presto.sql.analyzer.FeaturesConfig;
 import com.facebook.presto.sql.gen.ExpressionCompiler;
 import com.facebook.presto.sql.gen.JoinCompiler;
@@ -176,7 +186,6 @@ import java.util.concurrent.ScheduledExecutorService;
 
 import static com.facebook.presto.execution.scheduler.NodeSchedulerConfig.NetworkTopologyType.FLAT;
 import static com.facebook.presto.execution.scheduler.NodeSchedulerConfig.NetworkTopologyType.LEGACY;
-import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.base.Strings.nullToEmpty;
 import static com.google.common.reflect.Reflection.newProxy;
 import static com.google.inject.multibindings.Multibinder.newSetBinder;
@@ -203,7 +212,8 @@ public class ServerMainModule
 
     public ServerMainModule(SqlParserOptions sqlParserOptions)
     {
-        this.sqlParserOptions = requireNonNull(sqlParserOptions, "sqlParserOptions is null");
+        requireNonNull(sqlParserOptions, "sqlParserOptions is null");
+        this.sqlParserOptions = SqlParserOptions.copyOf(sqlParserOptions);
     }
 
     @Override
@@ -244,12 +254,15 @@ public class ServerMainModule
 
         binder.bind(SqlParser.class).in(Scopes.SINGLETON);
         binder.bind(SqlParserOptions.class).toInstance(sqlParserOptions);
+        sqlParserOptions.useEnhancedErrorHandler(serverConfig.isEnhancedErrorReporting());
 
         bindFailureDetector(binder, serverConfig.isCoordinator());
 
         jaxrsBinder(binder).bind(ThrowableMapper.class);
 
         configBinder(binder).bindConfig(QueryManagerConfig.class);
+
+        configBinder(binder).bindConfig(SqlEnvironmentConfig.class);
 
         jsonCodecBinder(binder).bindJsonCodec(ViewDefinition.class);
 
@@ -437,13 +450,7 @@ public class ServerMainModule
         binder.bind(QueryMonitor.class).in(Scopes.SINGLETON);
 
         // Determine the NodeVersion
-        String prestoVersion = serverConfig.getPrestoVersion();
-        if (prestoVersion == null) {
-            prestoVersion = getClass().getPackage().getImplementationVersion();
-        }
-        checkState(prestoVersion != null, "presto.version must be provided when it cannot be automatically determined");
-
-        NodeVersion nodeVersion = new NodeVersion(prestoVersion);
+        NodeVersion nodeVersion = new NodeVersion(serverConfig.getPrestoVersion());
         binder.bind(NodeVersion.class).toInstance(nodeVersion);
 
         // presto announcement
@@ -472,7 +479,7 @@ public class ServerMainModule
         // block encodings
         binder.bind(BlockEncodingManager.class).in(Scopes.SINGLETON);
         binder.bind(BlockEncodingSerde.class).to(BlockEncodingManager.class).in(Scopes.SINGLETON);
-        newSetBinder(binder, new TypeLiteral<BlockEncodingFactory<?>>() {});
+        newSetBinder(binder, BlockEncoding.class);
         jsonBinder(binder).addSerializerBinding(Block.class).to(BlockJsonSerde.Serializer.class);
         jsonBinder(binder).addDeserializerBinding(Block.class).to(BlockJsonSerde.Deserializer.class);
 
@@ -506,16 +513,26 @@ public class ServerMainModule
     @New
     public static StatsCalculator createNewStatsCalculator(Metadata metadata)
     {
+        StatsNormalizer normalizer = new StatsNormalizer();
         ScalarStatsCalculator scalarStatsCalculator = new ScalarStatsCalculator(metadata);
+        FilterStatsCalculator filterStatsCalculator = new FilterStatsCalculator(metadata, scalarStatsCalculator, normalizer);
 
-        ImmutableList.Builder<ComposableStatsCalculator.Rule> rules = ImmutableList.builder();
+        ImmutableList.Builder<Rule<?>> rules = ImmutableList.builder();
         rules.add(new OutputStatsRule());
-        rules.add(new TableScanStatsRule(metadata));
-        rules.add(new FilterStatsRule(new FilterStatsCalculator(metadata, scalarStatsCalculator)));
+        rules.add(new TableScanStatsRule(metadata, normalizer));
+        rules.add(new SimpleFilterProjectSemiJoinStatsRule(normalizer, filterStatsCalculator)); // this must be before FilterStatsRule
+        rules.add(new FilterStatsRule(filterStatsCalculator));
         rules.add(new ValuesStatsRule(metadata));
-        rules.add(new LimitStatsRule());
-        rules.add(new EnforceSingleRowStatsRule());
-        rules.add(new ProjectStatsRule(scalarStatsCalculator));
+        rules.add(new LimitStatsRule(normalizer));
+        rules.add(new EnforceSingleRowStatsRule(normalizer));
+        rules.add(new ProjectStatsRule(scalarStatsCalculator, normalizer));
+        rules.add(new ExchangeStatsRule(normalizer));
+        rules.add(new JoinStatsRule(filterStatsCalculator, normalizer));
+        rules.add(new AggregationStatsRule(normalizer));
+        rules.add(new UnionStatsRule(normalizer));
+        rules.add(new AssignUniqueIdStatsRule());
+        rules.add(new SemiJoinStatsRule());
+
         return new ComposableStatsCalculator(rules.build());
     }
 

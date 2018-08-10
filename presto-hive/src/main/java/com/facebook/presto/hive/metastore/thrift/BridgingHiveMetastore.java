@@ -15,9 +15,10 @@ package com.facebook.presto.hive.metastore.thrift;
 
 import com.facebook.presto.hive.HiveType;
 import com.facebook.presto.hive.HiveUtil;
+import com.facebook.presto.hive.PartitionNotFoundException;
+import com.facebook.presto.hive.PartitionStatistics;
 import com.facebook.presto.hive.metastore.Database;
 import com.facebook.presto.hive.metastore.ExtendedHiveMetastore;
-import com.facebook.presto.hive.metastore.HiveColumnStatistics;
 import com.facebook.presto.hive.metastore.HivePrivilegeInfo;
 import com.facebook.presto.hive.metastore.Partition;
 import com.facebook.presto.hive.metastore.PrincipalPrivileges;
@@ -27,7 +28,6 @@ import com.facebook.presto.spi.SchemaNotFoundException;
 import com.facebook.presto.spi.SchemaTableName;
 import com.facebook.presto.spi.TableNotFoundException;
 import com.google.common.collect.ImmutableMap;
-import org.apache.hadoop.hive.metastore.api.ColumnStatisticsObj;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.PrivilegeGrantInfo;
 
@@ -37,6 +37,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import static com.facebook.presto.hive.metastore.MetastoreUtil.verifyCanDropColumn;
@@ -78,29 +79,33 @@ public class BridgingHiveMetastore
     }
 
     @Override
-    public Optional<Map<String, HiveColumnStatistics>> getTableColumnStatistics(String databaseName, String tableName, Set<String> columnNames)
+    public boolean supportsColumnStatistics()
     {
-        return delegate.getTableColumnStatistics(databaseName, tableName, columnNames).map(this::groupStatisticsByColumn);
+        return delegate.supportsColumnStatistics();
     }
 
     @Override
-    public Optional<Map<String, Map<String, HiveColumnStatistics>>> getPartitionColumnStatistics(String databaseName, String tableName, Set<String> partitionNames, Set<String> columnNames)
+    public PartitionStatistics getTableStatistics(String databaseName, String tableName)
     {
-        return delegate.getPartitionColumnStatistics(databaseName, tableName, partitionNames, columnNames).map(
-                statistics -> ImmutableMap.copyOf(
-                        statistics.entrySet().stream()
-                                .collect(Collectors.toMap(
-                                        Map.Entry::getKey,
-                                        entry -> groupStatisticsByColumn(entry.getValue())))));
+        return delegate.getTableStatistics(databaseName, tableName);
     }
 
-    private Map<String, HiveColumnStatistics> groupStatisticsByColumn(Set<ColumnStatisticsObj> statistics)
+    @Override
+    public Map<String, PartitionStatistics> getPartitionStatistics(String databaseName, String tableName, Set<String> partitionNames)
     {
-        return ImmutableMap.copyOf(
-                statistics.stream()
-                        .collect(Collectors.toMap(
-                                ColumnStatisticsObj::getColName,
-                                ThriftMetastoreUtil::fromMetastoreApiColumnStatistics)));
+        return delegate.getPartitionStatistics(databaseName, tableName, partitionNames);
+    }
+
+    @Override
+    public void updateTableStatistics(String databaseName, String tableName, Function<PartitionStatistics, PartitionStatistics> update)
+    {
+        delegate.updateTableStatistics(databaseName, tableName, update);
+    }
+
+    @Override
+    public void updatePartitionStatistics(String databaseName, String tableName, String partitionName, Function<PartitionStatistics, PartitionStatistics> update)
+    {
+        delegate.updatePartitionStatistics(databaseName, tableName, partitionName, update);
     }
 
     @Override
@@ -171,6 +176,19 @@ public class BridgingHiveMetastore
         table.setDbName(newDatabaseName);
         table.setTableName(newTableName);
         alterTable(databaseName, tableName, table);
+    }
+
+    @Override
+    public synchronized void updateTableParameters(String databaseName, String tableName, Function<Map<String, String>, Map<String, String>> update)
+    {
+        org.apache.hadoop.hive.metastore.api.Table table = delegate.getTable(databaseName, tableName)
+                .orElseThrow(() -> new TableNotFoundException(new SchemaTableName(databaseName, tableName)));
+        Map<String, String> parameters = table.getParameters();
+        Map<String, String> updatedParameters = requireNonNull(update.apply(parameters), "updatedParameters is null");
+        if (!parameters.equals(updatedParameters)) {
+            table.setParameters(updatedParameters);
+            alterTable(databaseName, tableName, table);
+        }
     }
 
     @Override
@@ -281,6 +299,19 @@ public class BridgingHiveMetastore
     public void alterPartition(String databaseName, String tableName, Partition partition)
     {
         delegate.alterPartition(databaseName, tableName, toMetastoreApiPartition(partition));
+    }
+
+    @Override
+    public synchronized void updatePartitionParameters(String databaseName, String tableName, List<String> partitionValues, Function<Map<String, String>, Map<String, String>> update)
+    {
+        org.apache.hadoop.hive.metastore.api.Partition partition = delegate.getPartition(databaseName, tableName, partitionValues)
+                .orElseThrow(() -> new PartitionNotFoundException(new SchemaTableName(databaseName, tableName), partitionValues));
+        Map<String, String> parameters = partition.getParameters();
+        Map<String, String> updatedParameters = requireNonNull(update.apply(parameters), "updatedParameters is null");
+        if (!parameters.equals(updatedParameters)) {
+            partition.setParameters(updatedParameters);
+            delegate.alterPartition(databaseName, tableName, partition);
+        }
     }
 
     @Override

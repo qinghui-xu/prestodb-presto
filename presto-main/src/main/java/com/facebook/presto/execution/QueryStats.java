@@ -47,6 +47,7 @@ public class QueryStats
 
     private final Duration elapsedTime;
     private final Duration queuedTime;
+    private final Duration resourceWaitingTime;
     private final Duration analysisTime;
     private final Duration distributedPlanningTime;
     private final Duration totalPlanningTime;
@@ -64,6 +65,7 @@ public class QueryStats
 
     private final double cumulativeUserMemory;
     private final DataSize userMemoryReservation;
+    private final DataSize totalMemoryReservation;
     private final DataSize peakUserMemoryReservation;
     private final DataSize peakTotalMemoryReservation;
     private final DataSize peakTaskTotalMemory;
@@ -100,6 +102,7 @@ public class QueryStats
         this.endTime = null;
         this.elapsedTime = null;
         this.queuedTime = null;
+        this.resourceWaitingTime = null;
         this.analysisTime = null;
         this.distributedPlanningTime = null;
         this.totalPlanningTime = null;
@@ -114,6 +117,7 @@ public class QueryStats
         this.completedDrivers = 0;
         this.cumulativeUserMemory = 0.0;
         this.userMemoryReservation = null;
+        this.totalMemoryReservation = null;
         this.peakUserMemoryReservation = null;
         this.peakTotalMemoryReservation = null;
         this.peakTaskTotalMemory = null;
@@ -144,6 +148,7 @@ public class QueryStats
 
             @JsonProperty("elapsedTime") Duration elapsedTime,
             @JsonProperty("queuedTime") Duration queuedTime,
+            @JsonProperty("resourceWaitingTime") Duration resourceWaitingTime,
             @JsonProperty("analysisTime") Duration analysisTime,
             @JsonProperty("distributedPlanningTime") Duration distributedPlanningTime,
             @JsonProperty("totalPlanningTime") Duration totalPlanningTime,
@@ -161,6 +166,7 @@ public class QueryStats
 
             @JsonProperty("cumulativeUserMemory") double cumulativeUserMemory,
             @JsonProperty("userMemoryReservation") DataSize userMemoryReservation,
+            @JsonProperty("totalMemoryReservation") DataSize totalMemoryReservation,
             @JsonProperty("peakUserMemoryReservation") DataSize peakUserMemoryReservation,
             @JsonProperty("peakTotalMemoryReservation") DataSize peakTotalMemoryReservation,
             @JsonProperty("peakTaskTotalMemory") DataSize peakTaskTotalMemory,
@@ -195,6 +201,7 @@ public class QueryStats
 
         this.elapsedTime = elapsedTime;
         this.queuedTime = queuedTime;
+        this.resourceWaitingTime = resourceWaitingTime;
         this.analysisTime = analysisTime;
         this.distributedPlanningTime = distributedPlanningTime;
         this.totalPlanningTime = totalPlanningTime;
@@ -220,6 +227,7 @@ public class QueryStats
         checkArgument(cumulativeUserMemory >= 0, "cumulativeUserMemory is negative");
         this.cumulativeUserMemory = cumulativeUserMemory;
         this.userMemoryReservation = requireNonNull(userMemoryReservation, "userMemoryReservation is null");
+        this.totalMemoryReservation = requireNonNull(totalMemoryReservation, "totalMemoryReservation is null");
         this.peakUserMemoryReservation = requireNonNull(peakUserMemoryReservation, "peakUserMemoryReservation is null");
         this.peakTotalMemoryReservation = requireNonNull(peakTotalMemoryReservation, "peakTotalMemoryReservation is null");
         this.peakTaskTotalMemory = requireNonNull(peakTaskTotalMemory, "peakTaskTotalMemory is null");
@@ -278,6 +286,12 @@ public class QueryStats
     public Duration getElapsedTime()
     {
         return elapsedTime;
+    }
+
+    @JsonProperty
+    public Duration getResourceWaitingTime()
+    {
+        return resourceWaitingTime;
     }
 
     @JsonProperty
@@ -383,6 +397,12 @@ public class QueryStats
     public DataSize getUserMemoryReservation()
     {
         return userMemoryReservation;
+    }
+
+    @JsonProperty
+    public DataSize getTotalMemoryReservation()
+    {
+        return totalMemoryReservation;
     }
 
     @JsonProperty

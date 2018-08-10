@@ -143,7 +143,7 @@ public class ArrayBlock
     }
 
     @Override
-    protected Block getValues()
+    protected Block getRawElementBlock()
     {
         return values;
     }
@@ -173,5 +173,21 @@ public class ArrayBlock
         sb.append("positionCount=").append(getPositionCount());
         sb.append('}');
         return sb.toString();
+    }
+
+    @Override
+    public Block getLoadedBlock()
+    {
+        Block loadedValuesBlock = values.getLoadedBlock();
+
+        if (loadedValuesBlock == values) {
+            return this;
+        }
+        return createArrayBlockInternal(
+                arrayOffset,
+                positionCount,
+                valueIsNull,
+                offsets,
+                loadedValuesBlock);
     }
 }

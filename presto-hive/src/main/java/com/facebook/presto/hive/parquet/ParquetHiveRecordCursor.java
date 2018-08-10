@@ -63,6 +63,7 @@ import java.math.BigInteger;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -76,6 +77,7 @@ import static com.facebook.presto.hive.HiveErrorCode.HIVE_MISSING_DATA;
 import static com.facebook.presto.hive.HiveUtil.closeWithSuppression;
 import static com.facebook.presto.hive.HiveUtil.getDecimalType;
 import static com.facebook.presto.hive.parquet.HdfsParquetDataSource.buildHdfsParquetDataSource;
+import static com.facebook.presto.hive.parquet.ParquetTypeUtils.getDescriptors;
 import static com.facebook.presto.hive.parquet.ParquetTypeUtils.getParquetType;
 import static com.facebook.presto.hive.parquet.predicate.ParquetPredicateUtils.buildParquetPredicate;
 import static com.facebook.presto.hive.parquet.predicate.ParquetPredicateUtils.getParquetTupleDomain;
@@ -358,9 +360,10 @@ public class ParquetHiveRecordCursor
                 long firstDataPage = block.getColumns().get(0).getFirstDataPageOffset();
                 if (firstDataPage >= start && firstDataPage < start + length) {
                     if (predicatePushdownEnabled) {
-                        TupleDomain<ColumnDescriptor> parquetTupleDomain = getParquetTupleDomain(fileSchema, requestedSchema, effectivePredicate);
-                        ParquetPredicate parquetPredicate = buildParquetPredicate(requestedSchema, parquetTupleDomain, fileSchema);
-                        if (predicateMatches(parquetPredicate, block, dataSource, fileSchema, requestedSchema, parquetTupleDomain)) {
+                        Map<List<String>, RichColumnDescriptor> descriptorsByPath = getDescriptors(fileSchema, requestedSchema);
+                        TupleDomain<ColumnDescriptor> parquetTupleDomain = getParquetTupleDomain(descriptorsByPath, effectivePredicate);
+                        ParquetPredicate parquetPredicate = buildParquetPredicate(requestedSchema, parquetTupleDomain, descriptorsByPath);
+                        if (predicateMatches(parquetPredicate, block, dataSource, descriptorsByPath, parquetTupleDomain)) {
                             offsets.add(block.getStartingPos());
                         }
                     }
@@ -824,7 +827,7 @@ public class ParquetHiveRecordCursor
             for (int i = 0; i < prestoFieldCount; i++) {
                 NamedTypeSignature namedTypeSignature = prestoType.getTypeSignature().getParameters().get(i).getNamedTypeSignature();
                 if (namedTypeSignature.getName().isPresent()) {
-                    fieldTypeMap.put(namedTypeSignature.getName().get().toLowerCase(), FieldInformation.of(i, typeManager.getType(namedTypeSignature.getTypeSignature())));
+                    fieldTypeMap.put(namedTypeSignature.getName().get().toLowerCase(Locale.ENGLISH), FieldInformation.of(i, typeManager.getType(namedTypeSignature.getTypeSignature())));
                 }
             }
 
@@ -832,7 +835,7 @@ public class ParquetHiveRecordCursor
             ImmutableList.Builder<IndexedBlockConverter> builder = ImmutableList.builder();
             for (int i = 0, prevFieldIndex = -1; i < parquetFieldCount; i++) {
                 parquet.schema.Type fieldType = fieldTypes.get(i);
-                FieldInformation fieldInformation = fieldTypeMap.get(fieldType.getName().toLowerCase());
+                FieldInformation fieldInformation = fieldTypeMap.get(fieldType.getName().toLowerCase(Locale.ENGLISH));
                 if (fieldInformation == null) {
                     builder.add(fieldType.isPrimitive() ? ParquetDummyPrimitiveConverter.converter : new ParquetDummyGroupConverter(fieldType));
                 }

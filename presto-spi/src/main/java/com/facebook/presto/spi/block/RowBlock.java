@@ -116,7 +116,7 @@ public class RowBlock
     }
 
     @Override
-    protected Block[] getFieldBlocks()
+    protected Block[] getRawFieldBlocks()
     {
         return fieldBlocks;
     }
@@ -188,5 +188,29 @@ public class RowBlock
     public String toString()
     {
         return format("RowBlock{numFields=%d, positionCount=%d}", numFields, getPositionCount());
+    }
+
+    @Override
+    public Block getLoadedBlock()
+    {
+        boolean allLoaded = true;
+        Block[] loadedFieldBlocks = new Block[fieldBlocks.length];
+
+        for (int i = 0; i < fieldBlocks.length; i++) {
+            loadedFieldBlocks[i] = fieldBlocks[i].getLoadedBlock();
+            if (loadedFieldBlocks[i] != fieldBlocks[i]) {
+                allLoaded = false;
+            }
+        }
+
+        if (allLoaded) {
+            return this;
+        }
+        return createRowBlockInternal(
+                startOffset,
+                positionCount,
+                rowIsNull,
+                fieldBlockOffsets,
+                loadedFieldBlocks);
     }
 }

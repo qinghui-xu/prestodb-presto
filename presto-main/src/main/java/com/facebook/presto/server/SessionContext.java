@@ -34,6 +34,9 @@ public interface SessionContext
     String getSchema();
 
     @Nullable
+    String getPath();
+
+    @Nullable
     String getSource();
 
     String getRemoteUserAddress();
@@ -45,6 +48,8 @@ public interface SessionContext
     String getClientInfo();
 
     Set<String> getClientTags();
+
+    Set<String> getClientCapabilities();
 
     ResourceEstimates getResourceEstimates();
 
@@ -61,6 +66,8 @@ public interface SessionContext
     Map<String, String> getPreparedStatements();
 
     Optional<TransactionId> getTransactionId();
+
+    Optional<String> getTraceToken();
 
     boolean supportClientTransaction();
 }

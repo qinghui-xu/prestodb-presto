@@ -38,7 +38,7 @@ public class SingleMapBlock
     private final Block keyBlock;
     private final Block valueBlock;
     private final int[] hashTable;
-    private final Type keyType;
+    final Type keyType;
     private final MethodHandle keyNativeHashCode;
     private final MethodHandle keyBlockNativeEquals;
 
@@ -84,9 +84,9 @@ public class SingleMapBlock
     }
 
     @Override
-    public BlockEncoding getEncoding()
+    public String getEncodingName()
     {
-        return new SingleMapBlockEncoding(keyType, keyNativeHashCode, keyBlockNativeEquals, keyBlock.getEncoding(), valueBlock.getEncoding());
+        return SingleMapBlockEncoding.NAME;
     }
 
     @Override
@@ -96,13 +96,13 @@ public class SingleMapBlock
     }
 
     @Override
-    Block getKeyBlock()
+    Block getRawKeyBlock()
     {
         return keyBlock;
     }
 
     @Override
-    Block getValueBlock()
+    Block getRawValueBlock()
     {
         return valueBlock;
     }
@@ -113,11 +113,37 @@ public class SingleMapBlock
         return format("SingleMapBlock{positionCount=%d}", getPositionCount());
     }
 
+    @Override
+    public Block getLoadedBlock()
+    {
+        if (keyBlock != keyBlock.getLoadedBlock()) {
+            // keyBlock has to be loaded since MapBlock constructs hash table eagerly.
+            throw new IllegalStateException();
+        }
+
+        Block loadedValueBlock = valueBlock.getLoadedBlock();
+        if (loadedValueBlock == valueBlock) {
+            return this;
+        }
+        return new SingleMapBlock(
+                offset,
+                positionCount,
+                keyBlock,
+                loadedValueBlock,
+                hashTable,
+                keyType,
+                keyNativeHashCode,
+                keyBlockNativeEquals);
+    }
+
     int[] getHashTable()
     {
         return hashTable;
     }
 
+    /**
+     * @return position of the value under {@code nativeValue} key. -1 when key is not found.
+     */
     public int seekKey(Object nativeValue)
     {
         if (positionCount == 0) {

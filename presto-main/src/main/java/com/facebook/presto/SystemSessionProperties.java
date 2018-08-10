@@ -51,6 +51,7 @@ public final class SystemSessionProperties
     public static final String TASK_CONCURRENCY = "task_concurrency";
     public static final String TASK_SHARE_INDEX_LOADING = "task_share_index_loading";
     public static final String QUERY_MAX_MEMORY = "query_max_memory";
+    public static final String QUERY_MAX_TOTAL_MEMORY = "query_max_total_memory";
     public static final String QUERY_MAX_EXECUTION_TIME = "query_max_execution_time";
     public static final String QUERY_MAX_RUN_TIME = "query_max_run_time";
     public static final String RESOURCE_OVERCOMMIT = "resource_overcommit";
@@ -75,7 +76,6 @@ public final class SystemSessionProperties
     public static final String SPILL_ENABLED = "spill_enabled";
     public static final String AGGREGATION_OPERATOR_UNSPILL_MEMORY_LIMIT = "aggregation_operator_unspill_memory_limit";
     public static final String OPTIMIZE_DISTINCT_AGGREGATIONS = "optimize_mixed_distinct_aggregations";
-    public static final String LEGACY_ORDER_BY = "legacy_order_by";
     public static final String LEGACY_ROUND_N_BIGINT = "legacy_round_n_bigint";
     public static final String LEGACY_JOIN_USING = "legacy_join_using";
     public static final String LEGACY_ROW_FIELD_ORDINAL_ACCESS = "legacy_row_field_ordinal_access";
@@ -91,7 +91,10 @@ public final class SystemSessionProperties
     public static final String FORCE_SINGLE_NODE_OUTPUT = "force_single_node_output";
     public static final String FILTER_AND_PROJECT_MIN_OUTPUT_PAGE_SIZE = "filter_and_project_min_output_page_size";
     public static final String FILTER_AND_PROJECT_MIN_OUTPUT_PAGE_ROW_COUNT = "filter_and_project_min_output_page_row_count";
+    public static final String DISTRIBUTED_SORT = "distributed_sort";
     public static final String USE_MARK_DISTINCT = "use_mark_distinct";
+    public static final String PREFER_PARTITIAL_AGGREGATION = "prefer_partial_aggregation";
+    public static final String MAX_GROUPING_SETS = "max_grouping_sets";
 
     private final List<PropertyMetadata<?>> sessionProperties;
 
@@ -235,6 +238,15 @@ public final class SystemSessionProperties
                         true,
                         value -> DataSize.valueOf((String) value),
                         DataSize::toString),
+                new PropertyMetadata<>(
+                        QUERY_MAX_TOTAL_MEMORY,
+                        "Maximum amount of distributed total memory a query can use",
+                        VARCHAR,
+                        DataSize.class,
+                        memoryManagerConfig.getMaxQueryTotalMemory(),
+                        true,
+                        value -> DataSize.valueOf((String) value),
+                        DataSize::toString),
                 booleanSessionProperty(
                         RESOURCE_OVERCOMMIT,
                         "Use resources which are not guaranteed to be available to the query",
@@ -297,7 +309,7 @@ public final class SystemSessionProperties
                 integerSessionProperty(
                         CONCURRENT_LIFESPANS_PER_NODE,
                         "Experimental: Run a fixed number of groups concurrently for eligible JOINs",
-                        -1,
+                        featuresConfig.getConcurrentLifespansPerTask(),
                         false),
                 new PropertyMetadata<>(
                         SPILL_ENABLED,
@@ -329,11 +341,6 @@ public final class SystemSessionProperties
                         OPTIMIZE_DISTINCT_AGGREGATIONS,
                         "Optimize mixed non-distinct and distinct aggregations",
                         featuresConfig.isOptimizeMixedDistinctAggregations(),
-                        false),
-                booleanSessionProperty(
-                        LEGACY_ORDER_BY,
-                        "Use legacy rules for column resolution in ORDER BY clause",
-                        featuresConfig.isLegacyOrderBy(),
                         false),
                 booleanSessionProperty(
                         LEGACY_ROUND_N_BIGINT,
@@ -376,7 +383,7 @@ public final class SystemSessionProperties
                         false),
                 booleanSessionProperty(
                         LEGACY_TIMESTAMP,
-                        "Use legacy TIME & TIMESTAMP semantics",
+                        "Use legacy TIME & TIMESTAMP semantics (warning: this will be removed)",
                         featuresConfig.isLegacyTimestamp(),
                         true),
                 booleanSessionProperty(
@@ -419,10 +426,25 @@ public final class SystemSessionProperties
                         featuresConfig.getFilterAndProjectMinOutputPageRowCount(),
                         false),
                 booleanSessionProperty(
+                        DISTRIBUTED_SORT,
+                        "Parallelize sort across multiple nodes",
+                        featuresConfig.isDistributedSortEnabled(),
+                        false),
+                booleanSessionProperty(
                         USE_MARK_DISTINCT,
                         "Implement DISTINCT aggregations using MarkDistinct",
                         featuresConfig.isUseMarkDistinct(),
-                        false));
+                        false),
+                booleanSessionProperty(
+                        PREFER_PARTITIAL_AGGREGATION,
+                        "Prefer splitting aggregations into partial and final stages",
+                        featuresConfig.isPreferPartialAggregation(),
+                        false),
+                integerSessionProperty(
+                        MAX_GROUPING_SETS,
+                        "Maximum number of grouping sets in a GROUP BY",
+                        featuresConfig.getMaxGroupingSets(),
+                        true));
     }
 
     public List<PropertyMetadata<?>> getSessionProperties()
@@ -520,6 +542,11 @@ public final class SystemSessionProperties
         return session.getSystemProperty(QUERY_MAX_DATA_SIZE, DataSize.class);
     }
 
+    public static DataSize getQueryMaxTotalMemory(Session session)
+    {
+        return session.getSystemProperty(QUERY_MAX_TOTAL_MEMORY, DataSize.class);
+    }
+
     public static Duration getQueryMaxRunTime(Session session)
     {
         return session.getSystemProperty(QUERY_MAX_RUN_TIME, Duration.class);
@@ -563,11 +590,11 @@ public final class SystemSessionProperties
     public static OptionalInt getConcurrentLifespansPerNode(Session session)
     {
         Integer result = session.getSystemProperty(CONCURRENT_LIFESPANS_PER_NODE, Integer.class);
-        if (result == -1) {
+        if (result == 0) {
             return OptionalInt.empty();
         }
         else {
-            checkArgument(result > 0, "Concurrent lifespans per node must be positive if set");
+            checkArgument(result > 0, "Concurrent lifespans per node must be positive if set to non-zero");
             return OptionalInt.of(result);
         }
     }
@@ -609,11 +636,6 @@ public final class SystemSessionProperties
     public static boolean isOptimizeDistinctAggregationEnabled(Session session)
     {
         return session.getSystemProperty(OPTIMIZE_DISTINCT_AGGREGATIONS, Boolean.class);
-    }
-
-    public static boolean isLegacyOrderByEnabled(Session session)
-    {
-        return session.getSystemProperty(LEGACY_ORDER_BY, Boolean.class);
     }
 
     @Deprecated
@@ -696,6 +718,21 @@ public final class SystemSessionProperties
     public static boolean useMarkDistinct(Session session)
     {
         return session.getSystemProperty(USE_MARK_DISTINCT, Boolean.class);
+    }
+
+    public static boolean preferPartialAggregation(Session session)
+    {
+        return session.getSystemProperty(PREFER_PARTITIAL_AGGREGATION, Boolean.class);
+    }
+
+    public static boolean isDistributedSortEnabled(Session session)
+    {
+        return session.getSystemProperty(DISTRIBUTED_SORT, Boolean.class);
+    }
+
+    public static int getMaxGroupingSets(Session session)
+    {
+        return session.getSystemProperty(MAX_GROUPING_SETS, Integer.class);
     }
 
     private static int validateValueIsPowerOfTwo(Object value, String property)

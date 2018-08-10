@@ -38,6 +38,7 @@ public class TestRowType
                         DOUBLE,
                         methodHandle(TestRowType.class, "throwUnsupportedOperation"),
                         methodHandle(TestRowType.class, "throwUnsupportedOperation"),
+                        methodHandle(TestRowType.class, "throwUnsupportedOperation"),
                         methodHandle(TestRowType.class, "throwUnsupportedOperation"))));
 
         RowType row = RowType.from(fields);
@@ -58,11 +59,33 @@ public class TestRowType
                         DOUBLE,
                         methodHandle(TestRowType.class, "throwUnsupportedOperation"),
                         methodHandle(TestRowType.class, "throwUnsupportedOperation"),
+                        methodHandle(TestRowType.class, "throwUnsupportedOperation"),
                         methodHandle(TestRowType.class, "throwUnsupportedOperation")));
         RowType row = RowType.anonymous(types);
         assertEquals(
                 row.getDisplayName(),
                 "row(boolean, double, array(varchar), map(boolean, double))");
+    }
+
+    @Test
+    public void testRowDisplayMixedUnnamedColumns()
+    {
+        List<RowType.Field> fields = asList(
+                RowType.field(BOOLEAN),
+                RowType.field("double_col", DOUBLE),
+                RowType.field(new ArrayType(VARCHAR)),
+                RowType.field("map_col", new MapType(
+                        BOOLEAN,
+                        DOUBLE,
+                        methodHandle(TestRowType.class, "throwUnsupportedOperation"),
+                        methodHandle(TestRowType.class, "throwUnsupportedOperation"),
+                        methodHandle(TestRowType.class, "throwUnsupportedOperation"),
+                        methodHandle(TestRowType.class, "throwUnsupportedOperation"))));
+
+        RowType row = RowType.from(fields);
+        assertEquals(
+                row.getDisplayName(),
+                "row(boolean, double_col double, array(varchar), map_col map(boolean, double))");
     }
 
     public static void throwUnsupportedOperation()

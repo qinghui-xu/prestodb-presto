@@ -34,6 +34,8 @@ import com.facebook.presto.spi.resourceGroups.QueryType;
 import com.facebook.presto.spi.resourceGroups.ResourceGroupId;
 import com.facebook.presto.spi.resourceGroups.SelectionContext;
 import com.facebook.presto.spi.resourceGroups.SelectionCriteria;
+import com.facebook.presto.sql.SqlEnvironmentConfig;
+import com.facebook.presto.sql.SqlPath;
 import com.facebook.presto.sql.analyzer.SemanticException;
 import com.facebook.presto.sql.parser.ParsingException;
 import com.facebook.presto.sql.parser.ParsingOptions;
@@ -46,6 +48,7 @@ import com.facebook.presto.sql.tree.Statement;
 import com.facebook.presto.transaction.TransactionManager;
 import com.facebook.presto.util.StatementUtils;
 import com.google.common.collect.Ordering;
+import com.google.common.util.concurrent.AbstractFuture;
 import com.google.common.util.concurrent.ListenableFuture;
 import io.airlift.concurrent.ThreadPoolExecutorMBean;
 import io.airlift.log.Logger;
@@ -91,9 +94,9 @@ import static com.facebook.presto.spi.StandardErrorCode.QUERY_TEXT_TOO_LARGE;
 import static com.facebook.presto.spi.StandardErrorCode.SERVER_SHUTTING_DOWN;
 import static com.facebook.presto.spi.StandardErrorCode.SERVER_STARTING_UP;
 import static com.facebook.presto.sql.ParsingUtil.createParsingOptions;
+import static com.facebook.presto.sql.analyzer.ConstantExpressionVerifier.verifyExpressionIsConstant;
 import static com.facebook.presto.sql.analyzer.SemanticErrorCode.INVALID_PARAMETER_USAGE;
 import static com.facebook.presto.sql.parser.ParsingOptions.DecimalLiteralTreatment.AS_DECIMAL;
-import static com.facebook.presto.sql.planner.ExpressionInterpreter.verifyExpressionIsConstant;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.util.concurrent.Futures.immediateFailedFuture;
@@ -118,6 +121,7 @@ public class SqlQueryManager
     private final ResourceGroupManager resourceGroupManager;
     private final ClusterMemoryManager memoryManager;
 
+    private final Optional<String> path;
     private final boolean isIncludeCoordinator;
     private final int maxQueryHistory;
     private final Duration minQueryExpireAge;
@@ -158,6 +162,7 @@ public class SqlQueryManager
             SqlParser sqlParser,
             NodeSchedulerConfig nodeSchedulerConfig,
             QueryManagerConfig queryManagerConfig,
+            SqlEnvironmentConfig sqlEnvironmentConfig,
             QueryMonitor queryMonitor,
             ResourceGroupManager resourceGroupManager,
             ClusterMemoryManager memoryManager,
@@ -193,6 +198,7 @@ public class SqlQueryManager
 
         this.internalNodeManager = requireNonNull(internalNodeManager, "internalNodeManager is null");
 
+        this.path = sqlEnvironmentConfig.getPath();
         this.isIncludeCoordinator = nodeSchedulerConfig.isIncludeCoordinator();
         this.minQueryExpireAge = queryManagerConfig.getMinQueryExpireAge();
         this.maxQueryHistory = queryManagerConfig.getMaxQueryHistory();
@@ -366,13 +372,34 @@ public class SqlQueryManager
     }
 
     @Override
-    public QueryInfo createQuery(SessionContext sessionContext, String query)
+    public QueryId createQueryId()
     {
+        return queryIdGenerator.createNextQueryId();
+    }
+
+    @Override
+    public ListenableFuture<?> createQuery(QueryId queryId, SessionContext sessionContext, String query)
+    {
+        QueryCreationFuture queryCreationFuture = new QueryCreationFuture();
+        queryExecutor.submit(() -> {
+            try {
+                createQueryInternal(queryId, sessionContext, query);
+                queryCreationFuture.set(null);
+            }
+            catch (Throwable e) {
+                queryCreationFuture.setException(e);
+            }
+        });
+        return queryCreationFuture;
+    }
+
+    private void createQueryInternal(QueryId queryId, SessionContext sessionContext, String query)
+    {
+        requireNonNull(queryId, "queryId is null");
         requireNonNull(sessionContext, "sessionFactory is null");
         requireNonNull(query, "query is null");
         checkArgument(!query.isEmpty(), "query must not be empty string");
-
-        QueryId queryId = queryIdGenerator.createNextQueryId();
+        checkArgument(!queries.containsKey(queryId), "query %s already exists", queryId);
 
         Session session = null;
         SelectionContext<?> selectionContext;
@@ -404,6 +431,7 @@ public class SqlQueryManager
                     sessionContext.getIdentity().getUser(),
                     Optional.ofNullable(sessionContext.getSource()),
                     sessionContext.getClientTags(),
+                    sessionContext.getResourceEstimates(),
                     queryType));
 
             session = sessionSupplier.createSession(queryId, sessionContext, queryType, selectionContext.getResourceGroupId());
@@ -434,6 +462,7 @@ public class SqlQueryManager
                 session = Session.builder(new SessionPropertyManager())
                         .setQueryId(queryId)
                         .setIdentity(sessionContext.getIdentity())
+                        .setPath(new SqlPath(Optional.empty()))
                         .build();
             }
             QueryExecution execution = new FailedQueryExecution(
@@ -447,11 +476,10 @@ public class SqlQueryManager
                     metadata,
                     e);
 
-            QueryInfo queryInfo = null;
             try {
-                queries.put(queryId, execution);
+                queries.putIfAbsent(queryId, execution);
 
-                queryInfo = execution.getQueryInfo();
+                QueryInfo queryInfo = execution.getQueryInfo();
                 queryMonitor.queryCreatedEvent(queryInfo);
                 queryMonitor.queryCompletedEvent(queryInfo);
                 stats.queryQueued();
@@ -464,7 +492,7 @@ public class SqlQueryManager
                 expirationQueue.add(execution);
             }
 
-            return queryInfo;
+            return;
         }
 
         QueryInfo queryInfo = queryExecution.getQueryInfo();
@@ -484,12 +512,13 @@ public class SqlQueryManager
 
         addStatsListeners(queryExecution);
 
-        queries.put(queryId, queryExecution);
+        if (queries.putIfAbsent(queryId, queryExecution) != null) {
+            // query already created, so just exit
+            return;
+        }
 
         // start the query in the background
         resourceGroupManager.submit(statement, queryExecution, selectionContext, queryExecutor);
-
-        return queryInfo;
     }
 
     private Optional<String> getQueryType(String query)
@@ -747,23 +776,6 @@ public class SqlQueryManager
         }
     }
 
-    /**
-     * Set up a callback to fire when a query is completed. The callback will be called at most once.
-     */
-    static void addCompletionCallback(QueryExecution queryExecution, Runnable callback)
-    {
-        AtomicBoolean taskExecuted = new AtomicBoolean();
-        queryExecution.addStateChangeListener(newValue -> {
-            if (newValue.isDone() && taskExecuted.compareAndSet(false, true)) {
-                callback.run();
-            }
-        });
-        // Need to do this check in case the state changed before we added the previous state change listener
-        if (queryExecution.getState().isDone() && taskExecuted.compareAndSet(false, true)) {
-            callback.run();
-        }
-    }
-
     private QueryExecution getQuery(QueryId queryId)
     {
         return tryGetQuery(queryId)
@@ -774,5 +786,28 @@ public class SqlQueryManager
     {
         requireNonNull(queryId, "queryId is null");
         return Optional.ofNullable(queries.get(queryId));
+    }
+
+    private static class QueryCreationFuture
+            extends AbstractFuture<QueryInfo>
+    {
+        @Override
+        protected boolean set(QueryInfo value)
+        {
+            return super.set(value);
+        }
+
+        @Override
+        protected boolean setException(Throwable throwable)
+        {
+            return super.setException(throwable);
+        }
+
+        @Override
+        public boolean cancel(boolean mayInterruptIfRunning)
+        {
+            // query submission can not be canceled
+            return false;
+        }
     }
 }

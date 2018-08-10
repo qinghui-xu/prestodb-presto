@@ -14,11 +14,13 @@
 package com.facebook.presto.hive.metastore;
 
 import com.facebook.presto.hive.HiveType;
+import com.facebook.presto.hive.PartitionStatistics;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 
 public interface ExtendedHiveMetastore
 {
@@ -28,9 +30,15 @@ public interface ExtendedHiveMetastore
 
     Optional<Table> getTable(String databaseName, String tableName);
 
-    Optional<Map<String, HiveColumnStatistics>> getTableColumnStatistics(String databaseName, String tableName, Set<String> columnNames);
+    boolean supportsColumnStatistics();
 
-    Optional<Map<String, Map<String, HiveColumnStatistics>>> getPartitionColumnStatistics(String databaseName, String tableName, Set<String> partitionNames, Set<String> columnNames);
+    PartitionStatistics getTableStatistics(String databaseName, String tableName);
+
+    Map<String, PartitionStatistics> getPartitionStatistics(String databaseName, String tableName, Set<String> partitionNames);
+
+    void updateTableStatistics(String databaseName, String tableName, Function<PartitionStatistics, PartitionStatistics> update);
+
+    void updatePartitionStatistics(String databaseName, String tableName, String partitionName, Function<PartitionStatistics, PartitionStatistics> update);
 
     Optional<List<String>> getAllTables(String databaseName);
 
@@ -54,6 +62,8 @@ public interface ExtendedHiveMetastore
     void replaceTable(String databaseName, String tableName, Table newTable, PrincipalPrivileges principalPrivileges);
 
     void renameTable(String databaseName, String tableName, String newDatabaseName, String newTableName);
+
+    void updateTableParameters(String databaseName, String tableName, Function<Map<String, String>, Map<String, String>> update);
 
     void addColumn(String databaseName, String tableName, String columnName, HiveType columnType, String columnComment);
 
@@ -79,6 +89,8 @@ public interface ExtendedHiveMetastore
     void dropPartition(String databaseName, String tableName, List<String> parts, boolean deleteData);
 
     void alterPartition(String databaseName, String tableName, Partition partition);
+
+    void updatePartitionParameters(String databaseName, String tableName, List<String> partitionValues, Function<Map<String, String>, Map<String, String>> update);
 
     Set<String> getRoles(String user);
 
