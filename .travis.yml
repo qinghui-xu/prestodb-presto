@@ -87,7 +87,7 @@ script:
     fi
   - |
     if [[ -v TEST_SPECIFIC_MODULES ]]; then
-      ./mvnw test $MAVEN_SKIP_CHECKS_AND_DOCS -B -pl $TEST_SPECIFIC_MODULES $TEST_FLAGS
+      travis_wait 90 ./mvnw test $MAVEN_SKIP_CHECKS_AND_DOCS -B -pl $TEST_SPECIFIC_MODULES $TEST_FLAGS
     fi
   - |
     if [[ -v TEST_OTHER_MODULES ]]; then
@@ -98,16 +98,17 @@ script:
       presto-product-tests/bin/run_on_docker.sh \
         multinode -x quarantine,big_query,storage_formats,profile_specific_tests,tpcds,cassandra,mysql_connector,postgresql_connector,mysql,kafka,avro
     fi
-  - |
-    if [[ -v PRODUCT_TESTS_SPECIFIC_ENVIRONMENT ]]; then
-      presto-product-tests/bin/run_on_docker.sh \
-        singlenode -g hdfs_no_impersonation,avro
-    fi
-  - |
-    if [[ -v PRODUCT_TESTS_SPECIFIC_ENVIRONMENT ]]; then
-      presto-product-tests/bin/run_on_docker.sh \
-        singlenode-kerberos-hdfs-no-impersonation -g hdfs_no_impersonation
-    fi
+# We haven't make specific changes on those
+#  - |
+#    if [[ -v PRODUCT_TESTS_SPECIFIC_ENVIRONMENT ]]; then
+#      presto-product-tests/bin/run_on_docker.sh \
+#        singlenode -g hdfs_no_impersonation,avro
+#    fi
+#  - |
+#    if [[ -v PRODUCT_TESTS_SPECIFIC_ENVIRONMENT ]]; then
+#      presto-product-tests/bin/run_on_docker.sh \
+#        singlenode-kerberos-hdfs-no-impersonation -g hdfs_no_impersonation
+#    fi
   - |
     if [[ -v PRODUCT_TESTS_SPECIFIC_ENVIRONMENT ]]; then
       presto-product-tests/bin/run_on_docker.sh \
