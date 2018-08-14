@@ -78,15 +78,10 @@ public class Page
 
     public long getRetainedSizeInBytes()
     {
-        long retainedSizeInBytes = this.retainedSizeInBytes.get();
-        if (retainedSizeInBytes < 0) {
-            retainedSizeInBytes = INSTANCE_SIZE + sizeOf(blocks);
-            for (Block block : blocks) {
-                retainedSizeInBytes += block.getRetainedSizeInBytes();
-            }
-            this.retainedSizeInBytes.set(retainedSizeInBytes);
+        if (retainedSizeInBytes.get() < 0) {
+            updateRetainedSize();
         }
-        return retainedSizeInBytes;
+        return retainedSizeInBytes.get();
     }
 
     public Block getBlock(int channel)
@@ -157,11 +152,7 @@ public class Page
             }
         }
 
-        long retainedSize = 0;
-        for (Block block : blocks) {
-            retainedSize += block.getRetainedSizeInBytes();
-        }
-        retainedSizeInBytes.set(retainedSize);
+        updateRetainedSize();
     }
 
     private Map<DictionaryId, DictionaryBlockIndexes> getRelatedDictionaryBlocks()
@@ -242,16 +233,28 @@ public class Page
     }
 
     /**
-     * Assures that all data for the block is in memory.
+     * Returns a page that assures all data is in memory.
+     * May return the same page if all page data is already in memory.
      * <p>
      * This allows streaming data sources to skip sections that are not
      * accessed in a query.
      */
-    public void assureLoaded()
+    public Page getLoadedPage()
     {
-        for (Block block : blocks) {
-            block.assureLoaded();
+        boolean allLoaded = true;
+        Block[] loadedBlocks = new Block[blocks.length];
+        for (int i = 0; i < blocks.length; i++) {
+            loadedBlocks[i] = blocks[i].getLoadedBlock();
+            if (loadedBlocks[i] != blocks[i]) {
+                allLoaded = false;
+            }
         }
+
+        if (allLoaded) {
+            return this;
+        }
+
+        return new Page(loadedBlocks);
     }
 
     @Override
@@ -295,6 +298,15 @@ public class Page
         System.arraycopy(blocks, 0, result, 1, blocks.length);
 
         return new Page(positionCount, result);
+    }
+
+    private void updateRetainedSize()
+    {
+        long retainedSizeInBytes = INSTANCE_SIZE + sizeOf(blocks);
+        for (Block block : blocks) {
+            retainedSizeInBytes += block.getRetainedSizeInBytes();
+        }
+        this.retainedSizeInBytes.set(retainedSizeInBytes);
     }
 
     private static class DictionaryBlockIndexes

@@ -145,9 +145,9 @@ public abstract class AbstractFixedWidthBlock
     }
 
     @Override
-    public BlockEncoding getEncoding()
+    public String getEncodingName()
     {
-        return new FixedWidthBlockEncoding(fixedSize);
+        return FixedWidthBlockEncoding.NAME;
     }
 
     @Override
@@ -157,7 +157,12 @@ public abstract class AbstractFixedWidthBlock
 
         Slice copy = Slices.copyOf(getRawSlice(), valueOffset(position), fixedSize);
 
-        return new FixedWidthBlock(fixedSize, 1, copy, Slices.wrappedBooleanArray(isNull(position)));
+        Slice valueIsNull = null;
+        if (isNull(position)) {
+            valueIsNull = Slices.wrappedBooleanArray(true);
+        }
+
+        return new FixedWidthBlock(fixedSize, 1, copy, valueIsNull);
     }
 
     @Override

@@ -28,7 +28,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Multimap;
-import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.SettableFuture;
@@ -54,6 +53,7 @@ import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.base.Verify.verify;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static com.google.common.util.concurrent.Futures.nonCancellationPropagating;
+import static io.airlift.concurrent.MoreFutures.addSuccessCallback;
 import static io.airlift.concurrent.MoreFutures.getFutureValue;
 import static io.airlift.concurrent.MoreFutures.whenAnyComplete;
 import static java.util.Objects.requireNonNull;
@@ -169,6 +169,8 @@ public class SourcePartitionedScheduler
     @Override
     public synchronized ScheduleResult schedule()
     {
+        dropListenersFromWhenFinishedOrNewLifespansAdded();
+
         int overallSplitAssignmentCount = 0;
         ImmutableSet.Builder<RemoteTask> overallNewTasks = ImmutableSet.builder();
         List<ListenableFuture<?>> overallBlockedFutures = new ArrayList<>();
@@ -190,19 +192,7 @@ public class SourcePartitionedScheduler
                     scheduleGroup.nextSplitBatchFuture = splitSource.getNextBatch(scheduleGroup.partitionHandle, lifespan, splitBatchSize - pendingSplits.size());
 
                     long start = System.nanoTime();
-                    Futures.addCallback(scheduleGroup.nextSplitBatchFuture, new FutureCallback<SplitBatch>()
-                    {
-                        @Override
-                        public void onSuccess(SplitBatch result)
-                        {
-                            stage.recordGetSplitTime(start);
-                        }
-
-                        @Override
-                        public void onFailure(Throwable t)
-                        {
-                        }
-                    });
+                    addSuccessCallback(scheduleGroup.nextSplitBatchFuture, () -> stage.recordGetSplitTime(start));
                 }
 
                 if (scheduleGroup.nextSplitBatchFuture.isDone()) {
@@ -331,6 +321,25 @@ public class SourcePartitionedScheduler
                 nonCancellationPropagating(whenAnyComplete(overallBlockedFutures)),
                 blockedReason,
                 overallSplitAssignmentCount);
+    }
+
+    private synchronized void dropListenersFromWhenFinishedOrNewLifespansAdded()
+    {
+        // whenFinishedOrNewLifespanAdded may remain in a not-done state for an extended period of time.
+        // As a result, over time, it can retain a huge number of listener objects.
+
+        // Whenever schedule is called, holding onto the previous listener is not useful anymore.
+        // Therefore, we drop those listeners here by recreating the future.
+
+        // Note: The following implementation is thread-safe because whenFinishedOrNewLifespanAdded can only be completed
+        // while holding the monitor of this.
+
+        if (whenFinishedOrNewLifespanAdded.isDone()) {
+            return;
+        }
+
+        whenFinishedOrNewLifespanAdded.cancel(true);
+        whenFinishedOrNewLifespanAdded = SettableFuture.create();
     }
 
     @Override

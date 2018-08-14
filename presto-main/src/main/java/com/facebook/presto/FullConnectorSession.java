@@ -86,6 +86,12 @@ public class FullConnectorSession
     }
 
     @Override
+    public String getPath()
+    {
+        return session.getPath().toString();
+    }
+
+    @Override
     public Identity getIdentity()
     {
         return session.getIdentity();
@@ -107,6 +113,12 @@ public class FullConnectorSession
     public long getStartTime()
     {
         return session.getStartTime();
+    }
+
+    @Override
+    public Optional<String> getTraceToken()
+    {
+        return session.getTraceToken();
     }
 
     @Override
@@ -138,6 +150,7 @@ public class FullConnectorSession
                 .add("queryId", getQueryId())
                 .add("user", getUser())
                 .add("source", getSource().orElse(null))
+                .add("traceToken", getTraceToken().orElse(null))
                 .add("timeZoneKey", getTimeZoneKey())
                 .add("locale", getLocale())
                 .add("startTime", getStartTime())

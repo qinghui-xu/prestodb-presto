@@ -223,7 +223,8 @@ public class TestTupleDomainParquetPredicate
     private RichColumnDescriptor getColumn()
     {
         PrimitiveType type = new PrimitiveType(Repetition.OPTIONAL, PrimitiveTypeName.BINARY, "Test column");
-        return new RichColumnDescriptor(new String[] {"path"}, type, 0, 0);
+        ColumnDescriptor columnDescriptor = new ColumnDescriptor(new String[] {"path"}, PrimitiveTypeName.BINARY, 0, 0);
+        return new RichColumnDescriptor(columnDescriptor, type);
     }
 
     private static FloatStatistics floatColumnStats(float minimum, float maximum)

@@ -10,7 +10,7 @@
 
     <groupId>com.facebook.presto</groupId>
     <artifactId>presto-root</artifactId>
-    <version>0.199</version>
+    <version>0.206</version>
     <packaging>pom</packaging>
 
     <name>presto-root</name>
@@ -30,8 +30,8 @@
     <scm>
         <connection>scm:git:git://github.com/facebook/presto.git</connection>
         <url>https://github.com/facebook/presto</url>
-        <tag>0.199</tag>
-    </scm>
+      <tag>0.206</tag>
+  </scm>
 
     <properties>
         <air.main.basedir>${project.basedir}</air.main.basedir>
@@ -44,13 +44,13 @@
         <air.maven.version>3.3.9</air.maven.version>
 
         <dep.antlr.version>4.6</dep.antlr.version>
-        <dep.airlift.version>0.167</dep.airlift.version>
+        <dep.airlift.version>0.171</dep.airlift.version>
         <dep.packaging.version>${dep.airlift.version}</dep.packaging.version>
-        <dep.slice.version>0.33</dep.slice.version>
+        <dep.slice.version>0.35</dep.slice.version>
         <dep.aws-sdk.version>1.11.293</dep.aws-sdk.version>
         <dep.okhttp.version>3.9.0</dep.okhttp.version>
         <dep.jdbi3.version>3.0.0</dep.jdbi3.version>
-        <dep.drift.version>1.8</dep.drift.version>
+        <dep.drift.version>1.12</dep.drift.version>
         <dep.tempto.version>1.49</dep.tempto.version>
         <dep.testng.version>6.10</dep.testng.version>
         <dep.assertj-core.version>3.8.0</dep.assertj-core.version>
@@ -119,6 +119,7 @@
         <module>presto-thrift-connector</module>
         <module>presto-matching</module>
         <module>presto-memory-context</module>
+        <module>presto-proxy</module>
     </modules>
 
     <dependencyManagement>
@@ -366,7 +367,7 @@
             <dependency>
                 <groupId>com.facebook.presto.hadoop</groupId>
                 <artifactId>hadoop-apache2</artifactId>
-                <version>2.7.4-1</version>
+                <version>2.7.4-2</version>
             </dependency>
 
             <dependency>
@@ -416,7 +417,7 @@
             <dependency>
                 <groupId>io.airlift</groupId>
                 <artifactId>aircompressor</artifactId>
-                <version>0.9</version>
+                <version>0.11</version>
             </dependency>
 
             <dependency>
@@ -620,7 +621,7 @@
             <dependency>
                 <groupId>org.ow2.asm</groupId>
                 <artifactId>asm</artifactId>
-                <version>6.0</version>
+                <version>6.1.1</version>
             </dependency>
 
             <dependency>
@@ -645,12 +646,6 @@
                 <groupId>io.airlift</groupId>
                 <artifactId>airline</artifactId>
                 <version>0.8</version>
-            </dependency>
-
-            <dependency>
-                <groupId>org.iq80.snappy</groupId>
-                <artifactId>snappy</artifactId>
-                <version>0.3</version>
             </dependency>
 
             <dependency>
@@ -730,7 +725,7 @@
             <dependency>
                 <groupId>jline</groupId>
                 <artifactId>jline</artifactId>
-                <version>2.13</version>
+                <version>2.14.6</version>
                 <exclusions>
                     <exclusion>
                         <groupId>org.fusesource.jansi</groupId>
@@ -811,12 +806,6 @@
                 <groupId>org.apache.commons</groupId>
                 <artifactId>commons-math3</artifactId>
                 <version>3.6.1</version>
-            </dependency>
-
-            <dependency>
-                <groupId>commons-codec</groupId>
-                <artifactId>commons-codec</artifactId>
-                <version>1.10</version>
             </dependency>
 
             <dependency>

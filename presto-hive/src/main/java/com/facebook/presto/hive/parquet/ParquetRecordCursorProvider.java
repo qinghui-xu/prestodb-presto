@@ -15,7 +15,6 @@ package com.facebook.presto.hive.parquet;
 
 import com.facebook.presto.hive.FileFormatDataSourceStats;
 import com.facebook.presto.hive.HdfsEnvironment;
-import com.facebook.presto.hive.HiveClientConfig;
 import com.facebook.presto.hive.HiveColumnHandle;
 import com.facebook.presto.hive.HiveRecordCursorProvider;
 import com.facebook.presto.hive.ParquetHiveRecordCursorStats;
@@ -36,6 +35,7 @@ import java.util.Properties;
 import java.util.Set;
 
 import static com.facebook.presto.hive.HiveSessionProperties.isParquetPredicatePushdownEnabled;
+import static com.facebook.presto.hive.HiveSessionProperties.isUseParquetColumnNames;
 import static com.facebook.presto.hive.HiveUtil.getDeserializerClassName;
 import static java.util.Objects.requireNonNull;
 
@@ -47,20 +47,13 @@ public class ParquetRecordCursorProvider
             .add("parquet.hive.serde.ParquetHiveSerDe")
             .build();
 
-    private final boolean useParquetColumnNames;
     private final HdfsEnvironment hdfsEnvironment;
     private final FileFormatDataSourceStats stats;
     private final ParquetHiveRecordCursorStats splitStats;
 
     @Inject
-    public ParquetRecordCursorProvider(HiveClientConfig hiveClientConfig, HdfsEnvironment hdfsEnvironment, FileFormatDataSourceStats stats, ParquetHiveRecordCursorStats splitStats)
+    public ParquetRecordCursorProvider(HdfsEnvironment hdfsEnvironment, FileFormatDataSourceStats stats, ParquetHiveRecordCursorStats splitStats)
     {
-        this(requireNonNull(hiveClientConfig, "hiveClientConfig is null").isUseParquetColumnNames(), hdfsEnvironment, stats, splitStats);
-    }
-
-    public ParquetRecordCursorProvider(boolean useParquetColumnNames, HdfsEnvironment hdfsEnvironment, FileFormatDataSourceStats stats, ParquetHiveRecordCursorStats splitStats)
-    {
-        this.useParquetColumnNames = useParquetColumnNames;
         this.hdfsEnvironment = requireNonNull(hdfsEnvironment, "hdfsEnvironment is null");
         this.stats = requireNonNull(stats, "stats is null");
         this.splitStats = requireNonNull(splitStats, "split stats is null");
@@ -94,7 +87,7 @@ public class ParquetRecordCursorProvider
                 fileSize,
                 schema,
                 columns,
-                useParquetColumnNames,
+                isUseParquetColumnNames(session),
                 typeManager,
                 isParquetPredicatePushdownEnabled(session),
                 effectivePredicate,

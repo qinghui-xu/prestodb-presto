@@ -13,8 +13,10 @@
  */
 package com.facebook.presto.type;
 
+import com.facebook.presto.block.BlockEncodingManager;
 import com.facebook.presto.spi.block.Block;
 import com.facebook.presto.spi.block.BlockBuilder;
+import com.facebook.presto.spi.block.BlockEncodingSerde;
 import com.facebook.presto.spi.type.ArrayType;
 import com.facebook.presto.spi.type.MapType;
 import com.facebook.presto.spi.type.RowType;
@@ -52,6 +54,8 @@ import static org.testng.Assert.fail;
 
 public abstract class AbstractTestType
 {
+    private final BlockEncodingSerde blockEncodingSerde = new BlockEncodingManager(new TypeRegistry());
+
     private final Class<?> objectValueType;
     private final Block testBlock;
     private final Type type;
@@ -290,9 +294,9 @@ public abstract class AbstractTestType
         }
         else {
             SliceOutput actualSliceOutput = new DynamicSliceOutput(100);
-            writeBlock(actualSliceOutput, (Block) type.getObject(block, position));
+            writeBlock(blockEncodingSerde, actualSliceOutput, (Block) type.getObject(block, position));
             SliceOutput expectedSliceOutput = new DynamicSliceOutput(actualSliceOutput.size());
-            writeBlock(expectedSliceOutput, (Block) expectedStackValue);
+            writeBlock(blockEncodingSerde, expectedSliceOutput, (Block) expectedStackValue);
             assertEquals(actualSliceOutput.slice(), expectedSliceOutput.slice());
             try {
                 type.getBoolean(block, position);
@@ -466,13 +470,23 @@ public abstract class AbstractTestType
         return blockBuilder.build();
     }
 
+    /**
+     * @param value value, represented in native container type
+     * @return a value that is greater than input, represented in native container type
+     */
     protected abstract Object getGreaterValue(Object value);
 
+    /**
+     * @return a non-null value, represented in native container type
+     */
     protected Object getNonNullValue()
     {
         return getNonNullValueForType(type);
     }
 
+    /**
+     * @return a non-null value, represented in native container type
+     */
     private static Object getNonNullValueForType(Type type)
     {
         if (type.getJavaType() == boolean.class) {

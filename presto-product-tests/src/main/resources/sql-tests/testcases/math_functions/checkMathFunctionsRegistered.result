@@ -2,10 +2,8 @@
  abs | bigint | bigint | scalar | true | absolute value |
  abs | double | double | scalar | true | absolute value |
  acos | double | double | scalar | true | arc cosine |
- approx_distinct | bigint | bigint | aggregate | true | |
- approx_distinct | bigint | bigint, double | aggregate | true | |
- approx_distinct | bigint | double | aggregate | true | |
- approx_distinct | bigint | double, double | aggregate | true | |
+ approx_distinct | bigint | T | aggregate | true | |
+ approx_distinct | bigint | T, double | aggregate | true | |
  approx_percentile | bigint | bigint, bigint, double | aggregate | true | |
  approx_percentile | bigint | bigint, double | aggregate | true | |
  approx_percentile | double | double, bigint, double | aggregate | true | |
@@ -46,7 +44,6 @@
  greatest | E | E | scalar | true | get the largest of the given values |
  infinity | double | | scalar | true | Infinity |
  ln | double | double | scalar | true | natural logarithm |
- log | double | double, double | scalar | true | logarithm to given base |
  log10 | double | double | scalar | true | logarithm to base 10 |
  log2 | double | double | scalar | true | logarithm to base 2 |
  max | E | E | aggregate | true | Returns the maximum value of the argument |

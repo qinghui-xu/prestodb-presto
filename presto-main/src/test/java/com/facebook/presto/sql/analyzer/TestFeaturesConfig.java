@@ -33,6 +33,7 @@ import static io.airlift.configuration.testing.ConfigAssertions.assertRecordedDe
 import static io.airlift.units.DataSize.Unit.GIGABYTE;
 import static io.airlift.units.DataSize.Unit.KILOBYTE;
 import static io.airlift.units.DataSize.Unit.MEGABYTE;
+import static io.airlift.units.DataSize.succinctBytes;
 import static java.util.concurrent.TimeUnit.MINUTES;
 import static java.util.concurrent.TimeUnit.SECONDS;
 
@@ -48,6 +49,7 @@ public class TestFeaturesConfig
                 .setDistributedIndexJoinsEnabled(false)
                 .setDistributedJoinsEnabled(true)
                 .setGroupedExecutionForAggregationEnabled(false)
+                .setConcurrentLifespansPerTask(0)
                 .setFastInequalityJoins(true)
                 .setColocatedJoinsEnabled(false)
                 .setSpatialJoinsEnabled(true)
@@ -60,6 +62,7 @@ public class TestFeaturesConfig
                 .setPushTableWriteThroughUnion(true)
                 .setDictionaryAggregation(false)
                 .setLegacyArrayAgg(false)
+                .setGroupByUsesEqualTo(false)
                 .setLegacyMapSubscript(false)
                 .setRegexLibrary(JONI)
                 .setRe2JDfaStatesLimit(Integer.MAX_VALUE)
@@ -72,25 +75,30 @@ public class TestFeaturesConfig
                 .setMemoryRevokingThreshold(0.9)
                 .setMemoryRevokingTarget(0.5)
                 .setOptimizeMixedDistinctAggregations(false)
-                .setLegacyOrderBy(false)
+                .setLegacyLogFunction(false)
                 .setIterativeOptimizerEnabled(true)
                 .setIterativeOptimizerTimeout(new Duration(3, MINUTES))
-                .setEnableNewStatsCalculator(false)
+                .setEnableNewStatsCalculator(true)
                 .setExchangeCompressionEnabled(false)
                 .setLegacyTimestamp(true)
                 .setLegacyRoundNBigint(false)
                 .setLegacyJoinUsing(false)
                 .setLegacyRowFieldOrdinalAccess(false)
+                .setLegacyCharToVarcharCoercion(false)
                 .setEnableIntermediateAggregations(false)
                 .setPushAggregationThroughJoin(true)
                 .setParseDecimalLiteralsAsDouble(false)
                 .setForceSingleNodeOutput(true)
                 .setPagesIndexEagerCompactionEnabled(false)
-                .setFilterAndProjectMinOutputPageSize(new DataSize(25, KILOBYTE))
+                .setFilterAndProjectMinOutputPageSize(new DataSize(500, KILOBYTE))
                 .setFilterAndProjectMinOutputPageRowCount(256)
                 .setUseMarkDistinct(true)
+                .setPreferPartialAggregation(true)
                 .setHistogramGroupImplementation(HistogramGroupImplementation.NEW)
-                .setArrayAggGroupImplementation(ArrayAggGroupImplementation.NEW));
+                .setArrayAggGroupImplementation(ArrayAggGroupImplementation.NEW)
+                .setDistributedSortEnabled(true)
+                .setMaxGroupingSets(2048)
+                .setPreAllocateMemoryThreshold(succinctBytes(0)));
     }
 
     @Test
@@ -102,16 +110,19 @@ public class TestFeaturesConfig
                 .put("network-cost-weight", "0.2")
                 .put("experimental.iterative-optimizer-enabled", "false")
                 .put("experimental.iterative-optimizer-timeout", "10s")
-                .put("experimental.enable-new-stats-calculator", "true")
+                .put("experimental.enable-new-stats-calculator", "false")
                 .put("deprecated.legacy-array-agg", "true")
-                .put("deprecated.legacy-order-by", "true")
+                .put("deprecated.legacy-log-function", "true")
+                .put("deprecated.group-by-uses-equal", "true")
                 .put("deprecated.legacy-map-subscript", "true")
                 .put("deprecated.legacy-round-n-bigint", "true")
                 .put("deprecated.legacy-join-using", "true")
                 .put("deprecated.legacy-row-field-ordinal-access", "true")
+                .put("deprecated.legacy-char-to-varchar-coercion", "true")
                 .put("distributed-index-joins-enabled", "true")
                 .put("distributed-joins-enabled", "false")
                 .put("grouped-execution-for-aggregation-enabled", "true")
+                .put("concurrent-lifespans-per-task", "1")
                 .put("fast-inequality-joins", "false")
                 .put("colocated-joins-enabled", "true")
                 .put("spatial-joins-enabled", "false")
@@ -146,6 +157,10 @@ public class TestFeaturesConfig
                 .put("histogram.implementation", "LEGACY")
                 .put("arrayagg.implementation", "LEGACY")
                 .put("optimizer.use-mark-distinct", "false")
+                .put("optimizer.prefer-partial-aggregation", "false")
+                .put("distributed-sort", "false")
+                .put("analyzer.max-grouping-sets", "2047")
+                .put("experimental.preallocate-memory-threshold", "5TB")
                 .build();
 
         FeaturesConfig expected = new FeaturesConfig()
@@ -154,10 +169,11 @@ public class TestFeaturesConfig
                 .setNetworkCostWeight(0.2)
                 .setIterativeOptimizerEnabled(false)
                 .setIterativeOptimizerTimeout(new Duration(10, SECONDS))
-                .setEnableNewStatsCalculator(true)
+                .setEnableNewStatsCalculator(false)
                 .setDistributedIndexJoinsEnabled(true)
                 .setDistributedJoinsEnabled(false)
                 .setGroupedExecutionForAggregationEnabled(true)
+                .setConcurrentLifespansPerTask(1)
                 .setFastInequalityJoins(false)
                 .setColocatedJoinsEnabled(true)
                 .setSpatialJoinsEnabled(false)
@@ -172,6 +188,7 @@ public class TestFeaturesConfig
                 .setDictionaryAggregation(true)
                 .setPushAggregationThroughJoin(false)
                 .setLegacyArrayAgg(true)
+                .setGroupByUsesEqualTo(true)
                 .setLegacyMapSubscript(true)
                 .setRegexLibrary(RE2J)
                 .setRe2JDfaStatesLimit(42)
@@ -183,12 +200,13 @@ public class TestFeaturesConfig
                 .setSpillMaxUsedSpaceThreshold(0.8)
                 .setMemoryRevokingThreshold(0.2)
                 .setMemoryRevokingTarget(0.8)
-                .setLegacyOrderBy(true)
+                .setLegacyLogFunction(true)
                 .setExchangeCompressionEnabled(true)
                 .setLegacyTimestamp(false)
                 .setLegacyRoundNBigint(true)
                 .setLegacyJoinUsing(true)
                 .setLegacyRowFieldOrdinalAccess(true)
+                .setLegacyCharToVarcharCoercion(true)
                 .setEnableIntermediateAggregations(true)
                 .setParseDecimalLiteralsAsDouble(true)
                 .setForceSingleNodeOutput(false)
@@ -196,8 +214,12 @@ public class TestFeaturesConfig
                 .setFilterAndProjectMinOutputPageSize(new DataSize(1, MEGABYTE))
                 .setFilterAndProjectMinOutputPageRowCount(2048)
                 .setUseMarkDistinct(false)
+                .setPreferPartialAggregation(false)
                 .setHistogramGroupImplementation(HistogramGroupImplementation.LEGACY)
-                .setArrayAggGroupImplementation(ArrayAggGroupImplementation.LEGACY);
+                .setArrayAggGroupImplementation(ArrayAggGroupImplementation.LEGACY)
+                .setDistributedSortEnabled(false)
+                .setMaxGroupingSets(2047)
+                .setPreAllocateMemoryThreshold(DataSize.valueOf("5TB"));
         assertFullMapping(properties, expected);
     }
 
