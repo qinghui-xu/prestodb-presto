@@ -29,8 +29,10 @@ import org.testng.annotations.Test;
 
 import java.math.BigDecimal;
 import java.sql.Date;
+import java.sql.Timestamp;
+import java.time.LocalDateTime;
 
-import static com.facebook.presto.tests.TemptoProductTestRunner.PRODUCT_TESTS_TIME_ZONE;
+import static com.facebook.presto.tests.TestGroups.AVRO;
 import static com.facebook.presto.tests.TestGroups.HIVE_CONNECTOR;
 import static com.facebook.presto.tests.TestGroups.JDBC;
 import static com.facebook.presto.tests.TestGroups.POST_HIVE_1_0_1;
@@ -41,8 +43,8 @@ import static com.facebook.presto.tests.hive.AllSimpleTypesTableDefinitions.ALL_
 import static com.facebook.presto.tests.hive.AllSimpleTypesTableDefinitions.ALL_HIVE_SIMPLE_TYPES_PARQUET;
 import static com.facebook.presto.tests.hive.AllSimpleTypesTableDefinitions.ALL_HIVE_SIMPLE_TYPES_RCFILE;
 import static com.facebook.presto.tests.hive.AllSimpleTypesTableDefinitions.ALL_HIVE_SIMPLE_TYPES_TEXTFILE;
-import static com.facebook.presto.tests.hive.AllSimpleTypesTableDefinitions.onHive;
 import static com.facebook.presto.tests.hive.AllSimpleTypesTableDefinitions.populateDataToHiveTable;
+import static com.facebook.presto.tests.utils.QueryExecutors.onHive;
 import static io.prestodb.tempto.assertions.QueryAssert.Row.row;
 import static io.prestodb.tempto.assertions.QueryAssert.assertThat;
 import static io.prestodb.tempto.context.ThreadLocalTestContextHolder.testContext;
@@ -50,7 +52,6 @@ import static io.prestodb.tempto.fulfillment.table.MutableTableRequirement.State
 import static io.prestodb.tempto.fulfillment.table.TableHandle.tableHandle;
 import static io.prestodb.tempto.fulfillment.table.TableRequirements.immutableTable;
 import static io.prestodb.tempto.query.QueryExecutor.query;
-import static io.prestodb.tempto.util.DateTimeUtils.parseTimestampInLocalTime;
 import static java.lang.String.format;
 import static java.sql.JDBCType.BIGINT;
 import static java.sql.JDBCType.BOOLEAN;
@@ -145,7 +146,7 @@ public class TestAllDatatypesFromHiveConnector
                         234.567,
                         new BigDecimal("346"),
                         new BigDecimal("345.67800"),
-                        parseTimestampInLocalTime("2015-05-10 12:15:35.123", PRODUCT_TESTS_TIME_ZONE),
+                        Timestamp.valueOf(LocalDateTime.of(2015, 5, 10, 12, 15, 35, 123_000_000)),
                         Date.valueOf("2015-05-10"),
                         "ala ma kota",
                         "ala ma kot",
@@ -176,7 +177,7 @@ public class TestAllDatatypesFromHiveConnector
                         234.567,
                         new BigDecimal("346"),
                         new BigDecimal("345.67800"),
-                        parseTimestampInLocalTime("2015-05-10 12:15:35.123", PRODUCT_TESTS_TIME_ZONE),
+                        Timestamp.valueOf(LocalDateTime.of(2015, 5, 10, 12, 15, 35, 123_000_000)),
                         Date.valueOf("2015-05-10"),
                         "ala ma kota",
                         "ala ma kot",
@@ -207,7 +208,7 @@ public class TestAllDatatypesFromHiveConnector
                         234.567,
                         new BigDecimal("346"),
                         new BigDecimal("345.67800"),
-                        parseTimestampInLocalTime("2015-05-10 12:15:35.123", PRODUCT_TESTS_TIME_ZONE),
+                        Timestamp.valueOf(LocalDateTime.of(2015, 5, 10, 12, 15, 35, 123_000_000)),
                         Date.valueOf("2015-05-10"),
                         "ala ma kota",
                         "ala ma kot",
@@ -217,7 +218,7 @@ public class TestAllDatatypesFromHiveConnector
     }
 
     @Requires(AvroRequirements.class)
-    @Test(groups = {HIVE_CONNECTOR, JDBC, SKIP_ON_CDH})
+    @Test(groups = {HIVE_CONNECTOR, JDBC, SKIP_ON_CDH, AVRO})
     public void testSelectAllDatatypesAvro()
     {
         String tableName = mutableTableInstanceOf(ALL_HIVE_SIMPLE_TYPES_AVRO).getNameInDatabase();
@@ -229,7 +230,7 @@ public class TestAllDatatypesFromHiveConnector
                         "234.567," +
                         "346," +
                         "345.67800," +
-                        "'" + parseTimestampInLocalTime("2015-05-10 12:15:35.123", PRODUCT_TESTS_TIME_ZONE).toString() + "'," +
+                        "'" + Timestamp.valueOf(LocalDateTime.of(2015, 5, 10, 12, 15, 35, 123_000_000)).toString() + "'," +
                         "'" + Date.valueOf("2015-05-10") + "'," +
                         "'ala ma kota'," +
                         "'ala ma kot'," +
@@ -278,7 +279,7 @@ public class TestAllDatatypesFromHiveConnector
                         234.567,
                         new BigDecimal("346"),
                         new BigDecimal("345.67800"),
-                        parseTimestampInLocalTime("2015-05-10 12:15:35.123", PRODUCT_TESTS_TIME_ZONE),
+                        Timestamp.valueOf(LocalDateTime.of(2015, 5, 10, 12, 15, 35, 123_000_000)),
                         Date.valueOf("2015-05-10"),
                         "ala ma kota",
                         "ala ma kot",
@@ -361,7 +362,7 @@ public class TestAllDatatypesFromHiveConnector
                 "234.567," +
                 "346," +
                 "345.67800," +
-                "'" + parseTimestampInLocalTime("2015-05-10 12:15:35.123", PRODUCT_TESTS_TIME_ZONE).toString() + "'," +
+                "'" + Timestamp.valueOf(LocalDateTime.of(2015, 5, 10, 12, 15, 35, 123_000_000)).toString() + "'," +
                 "'ala ma kota'," +
                 "'ala ma kot'," +
                 "'ala ma    '," +
@@ -397,7 +398,7 @@ public class TestAllDatatypesFromHiveConnector
                         234.567,
                         new BigDecimal("346"),
                         new BigDecimal("345.67800"),
-                        parseTimestampInLocalTime("2015-05-10 12:15:35.123", PRODUCT_TESTS_TIME_ZONE),
+                        Timestamp.valueOf(LocalDateTime.of(2015, 5, 10, 12, 15, 35, 123_000_000)),
                         "ala ma kota",
                         "ala ma kot",
                         "ala ma    ",

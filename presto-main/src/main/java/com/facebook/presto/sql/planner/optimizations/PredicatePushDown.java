@@ -14,6 +14,7 @@
 package com.facebook.presto.sql.planner.optimizations;
 
 import com.facebook.presto.Session;
+import com.facebook.presto.execution.warnings.WarningCollector;
 import com.facebook.presto.metadata.Metadata;
 import com.facebook.presto.spi.type.Type;
 import com.facebook.presto.sql.parser.SqlParser;
@@ -43,16 +44,20 @@ import com.facebook.presto.sql.planner.plan.SampleNode;
 import com.facebook.presto.sql.planner.plan.SemiJoinNode;
 import com.facebook.presto.sql.planner.plan.SimplePlanRewriter;
 import com.facebook.presto.sql.planner.plan.SortNode;
+import com.facebook.presto.sql.planner.plan.SpatialJoinNode;
 import com.facebook.presto.sql.planner.plan.TableScanNode;
 import com.facebook.presto.sql.planner.plan.UnionNode;
 import com.facebook.presto.sql.planner.plan.UnnestNode;
 import com.facebook.presto.sql.tree.BooleanLiteral;
 import com.facebook.presto.sql.tree.ComparisonExpression;
 import com.facebook.presto.sql.tree.Expression;
+import com.facebook.presto.sql.tree.Literal;
 import com.facebook.presto.sql.tree.LongLiteral;
 import com.facebook.presto.sql.tree.NodeRef;
 import com.facebook.presto.sql.tree.NullLiteral;
 import com.facebook.presto.sql.tree.SymbolReference;
+import com.facebook.presto.sql.tree.TryExpression;
+import com.facebook.presto.sql.util.AstUtils;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
@@ -65,6 +70,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
@@ -84,6 +90,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.base.Predicates.in;
 import static com.google.common.base.Predicates.not;
+import static com.google.common.base.Verify.verify;
 import static com.google.common.collect.Iterables.filter;
 import static java.util.Collections.emptyList;
 import static java.util.Objects.requireNonNull;
@@ -105,7 +112,7 @@ public class PredicatePushDown
     }
 
     @Override
-    public PlanNode optimize(PlanNode plan, Session session, TypeProvider types, SymbolAllocator symbolAllocator, PlanNodeIdAllocator idAllocator)
+    public PlanNode optimize(PlanNode plan, Session session, TypeProvider types, SymbolAllocator symbolAllocator, PlanNodeIdAllocator idAllocator, WarningCollector warningCollector)
     {
         requireNonNull(plan, "plan is null");
         requireNonNull(session, "session is null");
@@ -212,15 +219,51 @@ public class PredicatePushDown
 
             Map<Boolean, List<Expression>> conjuncts = extractConjuncts(context.get()).stream().collect(Collectors.partitioningBy(deterministic));
 
-            // Push down conjuncts from the inherited predicate that don't depend on non-deterministic assignments
-            PlanNode rewrittenNode = context.defaultRewrite(node, inlineSymbols(node.getAssignments().getMap(), combineConjuncts(conjuncts.get(true))));
+            // Push down conjuncts from the inherited predicate that only depend on deterministic assignments with
+            // certain limitations.
+            List<Expression> deterministicConjuncts = conjuncts.get(true);
 
-            // All non-deterministic conjuncts, if any, will be in the filter node.
-            if (!conjuncts.get(false).isEmpty()) {
-                rewrittenNode = new FilterNode(idAllocator.getNextId(), rewrittenNode, combineConjuncts(conjuncts.get(false)));
+            // We partition the expressions in the deterministicConjuncts into two lists, and only inline the
+            // expressions that are in the inlining targets list.
+            Map<Boolean, List<Expression>> inlineConjuncts = deterministicConjuncts.stream()
+                    .collect(Collectors.partitioningBy(expression -> isInliningCandidate(expression, node)));
+
+            List<Expression> inlinedDeterministicConjuncts = inlineConjuncts.get(true).stream()
+                    .map(entry -> inlineSymbols(node.getAssignments().getMap(), entry))
+                    .collect(Collectors.toList());
+
+            PlanNode rewrittenNode = context.defaultRewrite(node, combineConjuncts(inlinedDeterministicConjuncts));
+
+            // All deterministic conjuncts that contains non-inlining targets, and non-deterministic conjuncts,
+            // if any, will be in the filter node.
+            List<Expression> nonInliningConjuncts = inlineConjuncts.get(false);
+            nonInliningConjuncts.addAll(conjuncts.get(false));
+
+            if (!nonInliningConjuncts.isEmpty()) {
+                rewrittenNode = new FilterNode(idAllocator.getNextId(), rewrittenNode, combineConjuncts(nonInliningConjuncts));
             }
 
             return rewrittenNode;
+        }
+
+        private boolean isInliningCandidate(Expression expression, ProjectNode node)
+        {
+            // TryExpressions should not be pushed down. However they are now being handled as lambda
+            // passed to a FunctionCall now and should not affect predicate push down. So we want to make
+            // sure the conjuncts are not TryExpressions.
+            verify(AstUtils.preOrder(expression).noneMatch(TryExpression.class::isInstance));
+
+            // candidate symbols for inlining are
+            //   1. references to simple constants
+            //   2. references to complex expressions that appear only once
+            // which come from the node, as opposed to an enclosing scope.
+            Set<Symbol> childOutputSet = ImmutableSet.copyOf(node.getOutputSymbols());
+            Map<Symbol, Long> dependencies = SymbolsExtractor.extractAll(expression).stream()
+                    .filter(childOutputSet::contains)
+                    .collect(Collectors.groupingBy(Function.identity(), Collectors.counting()));
+
+            return dependencies.entrySet().stream()
+                    .allMatch(entry -> entry.getValue() == 1 || node.getAssignments().get(entry.getKey()) instanceof Literal);
         }
 
         @Override
@@ -448,6 +491,97 @@ public class PredicatePushDown
             }
 
             output = new ProjectNode(idAllocator.getNextId(), output, Assignments.identity(node.getOutputSymbols()));
+            return output;
+        }
+
+        @Override
+        public PlanNode visitSpatialJoin(SpatialJoinNode node, RewriteContext<Expression> context)
+        {
+            Expression inheritedPredicate = context.get();
+
+            // See if we can rewrite left join in terms of a plain inner join
+            if (node.getType() == SpatialJoinNode.Type.LEFT && canConvertOuterToInner(node.getRight().getOutputSymbols(), inheritedPredicate)) {
+                node = new SpatialJoinNode(node.getId(), SpatialJoinNode.Type.INNER, node.getLeft(), node.getRight(), node.getOutputSymbols(), node.getFilter(), node.getLeftPartitionSymbol(), node.getRightPartitionSymbol(), node.getKdbTree());
+            }
+
+            Expression leftEffectivePredicate = effectivePredicateExtractor.extract(node.getLeft());
+            Expression rightEffectivePredicate = effectivePredicateExtractor.extract(node.getRight());
+            Expression joinPredicate = node.getFilter();
+
+            Expression leftPredicate;
+            Expression rightPredicate;
+            Expression postJoinPredicate;
+            Expression newJoinPredicate;
+
+            switch (node.getType()) {
+                case INNER:
+                    InnerJoinPushDownResult innerJoinPushDownResult = processInnerJoin(
+                            inheritedPredicate,
+                            leftEffectivePredicate,
+                            rightEffectivePredicate,
+                            joinPredicate,
+                            node.getLeft().getOutputSymbols());
+                    leftPredicate = innerJoinPushDownResult.getLeftPredicate();
+                    rightPredicate = innerJoinPushDownResult.getRightPredicate();
+                    postJoinPredicate = innerJoinPushDownResult.getPostJoinPredicate();
+                    newJoinPredicate = innerJoinPushDownResult.getJoinPredicate();
+                    break;
+                case LEFT:
+                    OuterJoinPushDownResult leftOuterJoinPushDownResult = processLimitedOuterJoin(
+                            inheritedPredicate,
+                            leftEffectivePredicate,
+                            rightEffectivePredicate,
+                            joinPredicate,
+                            node.getLeft().getOutputSymbols());
+                    leftPredicate = leftOuterJoinPushDownResult.getOuterJoinPredicate();
+                    rightPredicate = leftOuterJoinPushDownResult.getInnerJoinPredicate();
+                    postJoinPredicate = leftOuterJoinPushDownResult.getPostJoinPredicate();
+                    newJoinPredicate = leftOuterJoinPushDownResult.getJoinPredicate();
+                    break;
+                default:
+                    throw new IllegalArgumentException("Unsupported spatial join type: " + node.getType());
+            }
+
+            newJoinPredicate = simplifyExpression(newJoinPredicate);
+            verify(!newJoinPredicate.equals(BooleanLiteral.FALSE_LITERAL), "Spatial join predicate is missing");
+
+            PlanNode leftSource = context.rewrite(node.getLeft(), leftPredicate);
+            PlanNode rightSource = context.rewrite(node.getRight(), rightPredicate);
+
+            PlanNode output = node;
+            if (leftSource != node.getLeft() ||
+                    rightSource != node.getRight() ||
+                    !expressionEquivalence.areExpressionsEquivalent(session, newJoinPredicate, joinPredicate, types)) {
+                // Create identity projections for all existing symbols
+                Assignments.Builder leftProjections = Assignments.builder();
+                leftProjections.putAll(node.getLeft()
+                        .getOutputSymbols().stream()
+                        .collect(Collectors.toMap(key -> key, Symbol::toSymbolReference)));
+
+                Assignments.Builder rightProjections = Assignments.builder();
+                rightProjections.putAll(node.getRight()
+                        .getOutputSymbols().stream()
+                        .collect(Collectors.toMap(key -> key, Symbol::toSymbolReference)));
+
+                leftSource = new ProjectNode(idAllocator.getNextId(), leftSource, leftProjections.build());
+                rightSource = new ProjectNode(idAllocator.getNextId(), rightSource, rightProjections.build());
+
+                output = new SpatialJoinNode(
+                        node.getId(),
+                        node.getType(),
+                        leftSource,
+                        rightSource,
+                        node.getOutputSymbols(),
+                        newJoinPredicate,
+                        node.getLeftPartitionSymbol(),
+                        node.getRightPartitionSymbol(),
+                        node.getKdbTree());
+            }
+
+            if (!postJoinPredicate.equals(TRUE_LITERAL)) {
+                output = new FilterNode(idAllocator.getNextId(), output, postJoinPredicate);
+            }
+
             return output;
         }
 
@@ -712,7 +846,7 @@ public class PredicatePushDown
 
         private Type extractType(Expression expression)
         {
-            Map<NodeRef<Expression>, Type> expressionTypes = getExpressionTypes(session, metadata, sqlParser, symbolAllocator.getTypes(), expression, emptyList() /* parameters have already been replaced */);
+            Map<NodeRef<Expression>, Type> expressionTypes = getExpressionTypes(session, metadata, sqlParser, symbolAllocator.getTypes(), expression, emptyList(), /* parameters have already been replaced */WarningCollector.NOOP);
             return expressionTypes.get(NodeRef.of(expression));
         }
 
@@ -773,7 +907,8 @@ public class PredicatePushDown
                     sqlParser,
                     symbolAllocator.getTypes(),
                     expression,
-                    emptyList() /* parameters have already been replaced */);
+                    emptyList(), /* parameters have already been replaced */
+                    WarningCollector.NOOP);
             ExpressionInterpreter optimizer = ExpressionInterpreter.expressionOptimizer(expression, metadata, session, expressionTypes);
             return literalEncoder.toExpression(optimizer.optimize(NoOpSymbolResolver.INSTANCE), expressionTypes.get(NodeRef.of(expression)));
         }
@@ -789,7 +924,8 @@ public class PredicatePushDown
                     sqlParser,
                     symbolAllocator.getTypes(),
                     expression,
-                    emptyList() /* parameters have already been replaced */);
+                    emptyList(), /* parameters have already been replaced */
+                    WarningCollector.NOOP);
             return ExpressionInterpreter.expressionOptimizer(expression, metadata, session, expressionTypes)
                     .optimize(symbol -> nullSymbols.contains(symbol) ? null : symbol.toSymbolReference());
         }
@@ -957,8 +1093,9 @@ public class PredicatePushDown
         @Override
         public PlanNode visitAggregation(AggregationNode node, RewriteContext<Expression> context)
         {
-            if (node.getGroupingKeys().isEmpty()) {
-                // cannot push predicates down through aggregations without any grouping columns
+            if (node.hasEmptyGroupingSet()) {
+                // TODO: in case of grouping sets, we should be able to push the filters over grouping keys below the aggregation
+                // and also preserve the filter above the aggregation if it has an empty grouping set
                 return visitPlan(node, context);
             }
 

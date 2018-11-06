@@ -14,7 +14,9 @@
 package com.facebook.presto.sql.planner.optimizations;
 
 import com.facebook.presto.Session;
+import com.facebook.presto.execution.warnings.WarningCollector;
 import com.facebook.presto.metadata.Metadata;
+import com.facebook.presto.spi.ConstantProperty;
 import com.facebook.presto.spi.GroupingProperty;
 import com.facebook.presto.spi.LocalProperty;
 import com.facebook.presto.spi.SortingProperty;
@@ -43,6 +45,7 @@ import com.facebook.presto.sql.planner.plan.PlanVisitor;
 import com.facebook.presto.sql.planner.plan.RowNumberNode;
 import com.facebook.presto.sql.planner.plan.SemiJoinNode;
 import com.facebook.presto.sql.planner.plan.SortNode;
+import com.facebook.presto.sql.planner.plan.SpatialJoinNode;
 import com.facebook.presto.sql.planner.plan.TableFinishNode;
 import com.facebook.presto.sql.planner.plan.TableWriterNode;
 import com.facebook.presto.sql.planner.plan.TopNNode;
@@ -100,7 +103,7 @@ public class AddLocalExchanges
     }
 
     @Override
-    public PlanNode optimize(PlanNode plan, Session session, TypeProvider types, SymbolAllocator symbolAllocator, PlanNodeIdAllocator idAllocator)
+    public PlanNode optimize(PlanNode plan, Session session, TypeProvider types, SymbolAllocator symbolAllocator, PlanNodeIdAllocator idAllocator, WarningCollector warningCollector)
     {
         PlanWithProperties result = plan.accept(new Rewriter(symbolAllocator, idAllocator, session), any());
         return result.getNode();
@@ -366,8 +369,73 @@ public class AddLocalExchanges
         public PlanWithProperties visitMarkDistinct(MarkDistinctNode node, StreamPreferredProperties parentPreferences)
         {
             // mark distinct requires that all data partitioned
-            StreamPreferredProperties requiredProperties = parentPreferences.withDefaultParallelism(session).withPartitioning(node.getDistinctSymbols());
-            return planAndEnforceChildren(node, requiredProperties, requiredProperties);
+            StreamPreferredProperties childRequirements = parentPreferences
+                    .constrainTo(node.getSource().getOutputSymbols())
+                    .withDefaultParallelism(session)
+                    .withPartitioning(node.getDistinctSymbols());
+
+            PlanWithProperties child = planAndEnforce(node.getSource(), childRequirements, childRequirements);
+
+            MarkDistinctNode result = new MarkDistinctNode(
+                    node.getId(),
+                    child.getNode(),
+                    node.getMarkerSymbol(),
+                    pruneMarkDistinctSymbols(node, child.getProperties().getLocalProperties()),
+                    node.getHashSymbol());
+
+            return deriveProperties(result, child.getProperties());
+        }
+
+        /**
+         * Prune redundant distinct symbols to reduce CPU cost of hashing corresponding values and amount of memory
+         * needed to store all the distinct values.
+         *
+         * Consider the following plan,
+         *
+         *  - MarkDistinctNode (unique, c1, c2)
+         *      - Join
+         *          - AssignUniqueId (unique)
+         *              - probe (c1, c2)
+         *          - build
+         *
+         * In this case MarkDistinctNode (unique, c1, c2) is equivalent to MarkDistinctNode (unique),
+         * because if two rows match on `unique`, they must match on `c1` and `c2` as well.
+         *
+         * More generally, any distinct symbol that is functionally dependent on a subset of
+         * other distinct symbols can be dropped.
+         *
+         * Ideally, this logic would be encapsulated in a separate rule, but currently no rule other
+         * than AddLocalExchanges can reason about local properties.
+         */
+        private List<Symbol> pruneMarkDistinctSymbols(MarkDistinctNode node, List<LocalProperty<Symbol>> localProperties)
+        {
+            if (localProperties.isEmpty()) {
+                return node.getDistinctSymbols();
+            }
+
+            // Identify functional dependencies between distinct symbols: in the list of local properties any constant
+            // symbol is functionally dependent on the set of symbols that appears earlier.
+            ImmutableSet.Builder<Symbol> redundantSymbolsBuilder = ImmutableSet.builder();
+            for (LocalProperty<Symbol> property : localProperties) {
+                if (property instanceof ConstantProperty) {
+                    redundantSymbolsBuilder.add(((ConstantProperty<Symbol>) property).getColumn());
+                }
+                else if (!node.getDistinctSymbols().containsAll(property.getColumns())) {
+                    // Ran into a non-distinct symbol. There will be no more symbols that are functionally dependent on distinct symbols exclusively.
+                    break;
+                }
+            }
+
+            Set<Symbol> redundantSymbols = redundantSymbolsBuilder.build();
+            List<Symbol> remainingSymbols = node.getDistinctSymbols().stream()
+                    .filter(symbol -> !redundantSymbols.contains(symbol))
+                    .collect(toImmutableList());
+            if (remainingSymbols.isEmpty()) {
+                // This happens when all distinct symbols are constants.
+                // In that case, keep the first symbol (don't drop them all).
+                return ImmutableList.of(node.getDistinctSymbols().get(0));
+            }
+            return remainingSymbols;
         }
 
         @Override
@@ -539,6 +607,20 @@ public class AddLocalExchanges
             PlanWithProperties filteringSource = planAndEnforce(node.getFilteringSource(), singleStream(), singleStream());
 
             return rebaseAndDeriveProperties(node, ImmutableList.of(source, filteringSource));
+        }
+
+        @Override
+        public PlanWithProperties visitSpatialJoin(SpatialJoinNode node, StreamPreferredProperties parentPreferences)
+        {
+            PlanWithProperties probe = planAndEnforce(
+                    node.getLeft(),
+                    defaultParallelism(session),
+                    parentPreferences.constrainTo(node.getLeft().getOutputSymbols())
+                            .withDefaultParallelism(session));
+
+            PlanWithProperties build = planAndEnforce(node.getRight(), singleStream(), singleStream());
+
+            return rebaseAndDeriveProperties(node, ImmutableList.of(probe, build));
         }
 
         @Override

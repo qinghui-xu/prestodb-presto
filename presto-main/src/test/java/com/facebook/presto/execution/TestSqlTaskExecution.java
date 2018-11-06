@@ -37,6 +37,7 @@ import com.facebook.presto.operator.OperatorFactory;
 import com.facebook.presto.operator.PipelineExecutionStrategy;
 import com.facebook.presto.operator.SourceOperator;
 import com.facebook.presto.operator.SourceOperatorFactory;
+import com.facebook.presto.operator.StageExecutionStrategy;
 import com.facebook.presto.operator.TaskContext;
 import com.facebook.presto.operator.TaskOutputOperator.TaskOutputOperatorFactory;
 import com.facebook.presto.operator.ValuesOperator.ValuesOperatorFactory;
@@ -89,7 +90,7 @@ import static com.facebook.presto.SessionTestUtils.TEST_SESSION;
 import static com.facebook.presto.block.BlockAssertions.createStringSequenceBlock;
 import static com.facebook.presto.block.BlockAssertions.createStringsBlock;
 import static com.facebook.presto.execution.TaskTestUtils.TABLE_SCAN_NODE_ID;
-import static com.facebook.presto.execution.TaskTestUtils.createTestQueryMonitor;
+import static com.facebook.presto.execution.TaskTestUtils.createTestSplitMonitor;
 import static com.facebook.presto.execution.buffer.BufferState.OPEN;
 import static com.facebook.presto.execution.buffer.BufferState.TERMINAL_BUFFER_STATES;
 import static com.facebook.presto.memory.context.AggregatedMemoryContext.newSimpleAggregatedMemoryContext;
@@ -166,7 +167,8 @@ public class TestSqlTaskExecution
                             ImmutableList.of(testingScanOperatorFactory, taskOutputOperatorFactory),
                             OptionalInt.empty(),
                             executionStrategy)),
-                    ImmutableList.of(TABLE_SCAN_NODE_ID));
+                    ImmutableList.of(TABLE_SCAN_NODE_ID),
+                    executionStrategy == GROUPED_EXECUTION ? StageExecutionStrategy.groupedExecution(ImmutableList.of(TABLE_SCAN_NODE_ID)) : StageExecutionStrategy.ungroupedExecution());
             TaskContext taskContext = newTestingTaskContext(taskNotificationExecutor, driverYieldExecutor, taskStateMachine);
             SqlTaskExecution sqlTaskExecution = SqlTaskExecution.createSqlTaskExecution(
                     taskStateMachine,
@@ -176,7 +178,7 @@ public class TestSqlTaskExecution
                     localExecutionPlan,
                     taskExecutor,
                     taskNotificationExecutor,
-                    createTestQueryMonitor());
+                    createTestSplitMonitor());
 
             //
             // test body
@@ -416,7 +418,8 @@ public class TestSqlTaskExecution
                                     ImmutableList.of(valuesOperatorFactory3, buildOperatorFactoryC),
                                     OptionalInt.empty(),
                                     UNGROUPED_EXECUTION)),
-                    ImmutableList.of(scan2NodeId, scan0NodeId));
+                    ImmutableList.of(scan2NodeId, scan0NodeId),
+                    executionStrategy == GROUPED_EXECUTION ? StageExecutionStrategy.groupedExecution(ImmutableList.of(scan0NodeId, scan2NodeId)) : StageExecutionStrategy.ungroupedExecution());
             TaskContext taskContext = newTestingTaskContext(taskNotificationExecutor, driverYieldExecutor, taskStateMachine);
             SqlTaskExecution sqlTaskExecution = SqlTaskExecution.createSqlTaskExecution(
                     taskStateMachine,
@@ -426,7 +429,7 @@ public class TestSqlTaskExecution
                     localExecutionPlan,
                     taskExecutor,
                     taskNotificationExecutor,
-                    createTestQueryMonitor());
+                    createTestSplitMonitor());
 
             //
             // test body
@@ -616,7 +619,7 @@ public class TestSqlTaskExecution
                         .withBuffer(OUTPUT_BUFFER_ID, 0)
                         .withNoMoreBufferIds(),
                 new DataSize(1, MEGABYTE),
-                () -> new SimpleLocalMemoryContext(newSimpleAggregatedMemoryContext()),
+                () -> new SimpleLocalMemoryContext(newSimpleAggregatedMemoryContext(), "test"),
                 taskNotificationExecutor);
     }
 

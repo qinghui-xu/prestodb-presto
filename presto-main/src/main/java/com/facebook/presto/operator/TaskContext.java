@@ -18,6 +18,7 @@ import com.facebook.presto.execution.Lifespan;
 import com.facebook.presto.execution.TaskId;
 import com.facebook.presto.execution.TaskState;
 import com.facebook.presto.execution.TaskStateMachine;
+import com.facebook.presto.execution.buffer.LazyOutputBuffer;
 import com.facebook.presto.memory.QueryContext;
 import com.facebook.presto.memory.QueryContextVisitor;
 import com.facebook.presto.memory.context.LocalMemoryContext;
@@ -85,7 +86,7 @@ public class TaskContext
 
     private final List<PipelineContext> pipelineContexts = new CopyOnWriteArrayList<>();
 
-    private final boolean verboseStats;
+    private final boolean perOperatorCpuTimerEnabled;
     private final boolean cpuTimerEnabled;
 
     private final OptionalInt totalPartitions;
@@ -109,11 +110,11 @@ public class TaskContext
             ScheduledExecutorService yieldExecutor,
             Session session,
             MemoryTrackingContext taskMemoryContext,
-            boolean verboseStats,
+            boolean perOperatorCpuTimerEnabled,
             boolean cpuTimerEnabled,
             OptionalInt totalPartitions)
     {
-        TaskContext taskContext = new TaskContext(queryContext, taskStateMachine, gcMonitor, notificationExecutor, yieldExecutor, session, taskMemoryContext, verboseStats, cpuTimerEnabled, totalPartitions);
+        TaskContext taskContext = new TaskContext(queryContext, taskStateMachine, gcMonitor, notificationExecutor, yieldExecutor, session, taskMemoryContext, perOperatorCpuTimerEnabled, cpuTimerEnabled, totalPartitions);
         taskContext.initialize();
         return taskContext;
     }
@@ -125,7 +126,7 @@ public class TaskContext
             ScheduledExecutorService yieldExecutor,
             Session session,
             MemoryTrackingContext taskMemoryContext,
-            boolean verboseStats,
+            boolean perOperatorCpuTimerEnabled,
             boolean cpuTimerEnabled,
             OptionalInt totalPartitions)
     {
@@ -136,7 +137,9 @@ public class TaskContext
         this.yieldExecutor = requireNonNull(yieldExecutor, "yieldExecutor is null");
         this.session = session;
         this.taskMemoryContext = requireNonNull(taskMemoryContext, "taskMemoryContext is null");
-        this.verboseStats = verboseStats;
+        // Initialize the local memory contexts with the LazyOutputBuffer tag as LazyOutputBuffer will do the local memory allocations
+        taskMemoryContext.initializeLocalMemoryContexts(LazyOutputBuffer.class.getSimpleName());
+        this.perOperatorCpuTimerEnabled = perOperatorCpuTimerEnabled;
         this.cpuTimerEnabled = cpuTimerEnabled;
         this.totalPartitions = requireNonNull(totalPartitions, "totalPartitions is null");
     }
@@ -159,7 +162,7 @@ public class TaskContext
         return totalPartitions;
     }
 
-    public PipelineContext addPipelineContext(int pipelineId, boolean inputPipeline, boolean outputPipeline)
+    public PipelineContext addPipelineContext(int pipelineId, boolean inputPipeline, boolean outputPipeline, boolean partitioned)
     {
         PipelineContext pipelineContext = new PipelineContext(
                 pipelineId,
@@ -168,7 +171,8 @@ public class TaskContext
                 yieldExecutor,
                 taskMemoryContext.newMemoryTrackingContext(),
                 inputPipeline,
-                outputPipeline);
+                outputPipeline,
+                partitioned);
         pipelineContexts.add(pipelineContext);
         return pipelineContext;
     }
@@ -283,9 +287,9 @@ public class TaskContext
         pipelineContexts.forEach(PipelineContext::moreMemoryAvailable);
     }
 
-    public boolean isVerboseStats()
+    public boolean isPerOperatorCpuTimerEnabled()
     {
-        return verboseStats;
+        return perOperatorCpuTimerEnabled;
     }
 
     public boolean isCpuTimerEnabled()
@@ -384,7 +388,6 @@ public class TaskContext
 
         long totalScheduledTime = 0;
         long totalCpuTime = 0;
-        long totalUserTime = 0;
         long totalBlockedTime = 0;
 
         long rawInputDataSize = 0;
@@ -413,7 +416,6 @@ public class TaskContext
 
             totalScheduledTime += pipeline.getTotalScheduledTime().roundTo(NANOSECONDS);
             totalCpuTime += pipeline.getTotalCpuTime().roundTo(NANOSECONDS);
-            totalUserTime += pipeline.getTotalUserTime().roundTo(NANOSECONDS);
             totalBlockedTime += pipeline.getTotalBlockedTime().roundTo(NANOSECONDS);
 
             if (pipeline.isInputPipeline()) {
@@ -491,7 +493,6 @@ public class TaskContext
                 succinctBytes(taskMemoryContext.getSystemMemory()),
                 new Duration(totalScheduledTime, NANOSECONDS).convertToMostSuccinctTimeUnit(),
                 new Duration(totalCpuTime, NANOSECONDS).convertToMostSuccinctTimeUnit(),
-                new Duration(totalUserTime, NANOSECONDS).convertToMostSuccinctTimeUnit(),
                 new Duration(totalBlockedTime, NANOSECONDS).convertToMostSuccinctTimeUnit(),
                 fullyBlocked && (runningDrivers > 0 || runningPartitionedDrivers > 0),
                 blockedReasons,

@@ -16,7 +16,6 @@ package com.facebook.presto.hive;
 import com.facebook.presto.hive.orc.DwrfPageSourceFactory;
 import com.facebook.presto.hive.orc.OrcPageSourceFactory;
 import com.facebook.presto.hive.parquet.ParquetPageSourceFactory;
-import com.facebook.presto.hive.parquet.ParquetRecordCursorProvider;
 import com.facebook.presto.hive.rcfile.RcFilePageSourceFactory;
 import com.facebook.presto.orc.OrcWriterOptions;
 import com.facebook.presto.spi.ConnectorPageSource;
@@ -24,11 +23,7 @@ import com.facebook.presto.spi.ConnectorSession;
 import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.spi.RecordCursor;
 import com.facebook.presto.spi.RecordPageSource;
-import com.facebook.presto.spi.block.Block;
 import com.facebook.presto.spi.predicate.TupleDomain;
-import com.facebook.presto.spi.type.ArrayType;
-import com.facebook.presto.spi.type.RowType;
-import com.facebook.presto.spi.type.Type;
 import com.facebook.presto.testing.TestingConnectorSession;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
@@ -38,14 +33,12 @@ import com.google.common.collect.Lists;
 import io.airlift.compress.lzo.LzoCodec;
 import io.airlift.compress.lzo.LzopCodec;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.common.type.HiveVarchar;
 import org.apache.hadoop.hive.serde2.objectinspector.ListObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.MapObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.PrimitiveObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.PrimitiveObjectInspector.PrimitiveCategory;
-import org.apache.hadoop.hive.serde2.objectinspector.StandardStructObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.StructField;
 import org.apache.hadoop.hive.serde2.objectinspector.StructObjectInspector;
 import org.apache.hadoop.hive.serde2.typeinfo.VarcharTypeInfo;
@@ -77,10 +70,6 @@ import static com.facebook.presto.hive.HiveTestUtils.HDFS_ENVIRONMENT;
 import static com.facebook.presto.hive.HiveTestUtils.SESSION;
 import static com.facebook.presto.hive.HiveTestUtils.TYPE_MANAGER;
 import static com.facebook.presto.hive.HiveTestUtils.getTypes;
-import static com.facebook.presto.spi.type.IntegerType.INTEGER;
-import static com.facebook.presto.spi.type.VarcharType.createUnboundedVarcharType;
-import static com.facebook.presto.tests.StructuralTestUtil.arrayBlockOf;
-import static com.facebook.presto.tests.StructuralTestUtil.rowBlockOf;
 import static com.google.common.base.Predicates.not;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.Iterables.filter;
@@ -90,11 +79,7 @@ import static java.util.Objects.requireNonNull;
 import static java.util.stream.Collectors.toList;
 import static org.apache.hadoop.hive.metastore.api.hive_metastoreConstants.FILE_INPUT_FORMAT;
 import static org.apache.hadoop.hive.serde.serdeConstants.SERIALIZATION_LIB;
-import static org.apache.hadoop.hive.serde2.objectinspector.ObjectInspectorFactory.getStandardListObjectInspector;
-import static org.apache.hadoop.hive.serde2.objectinspector.ObjectInspectorFactory.getStandardStructObjectInspector;
 import static org.apache.hadoop.hive.serde2.objectinspector.primitive.PrimitiveObjectInspectorFactory.getPrimitiveJavaObjectInspector;
-import static org.apache.hadoop.hive.serde2.objectinspector.primitive.PrimitiveObjectInspectorFactory.javaIntObjectInspector;
-import static org.apache.hadoop.hive.serde2.objectinspector.primitive.PrimitiveObjectInspectorFactory.javaStringObjectInspector;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.assertTrue;
@@ -104,14 +89,8 @@ public class TestHiveFileFormats
         extends AbstractTestHiveFileFormats
 {
     private static final FileFormatDataSourceStats STATS = new FileFormatDataSourceStats();
-    private static final ParquetHiveRecordCursorStats SPLIT_STATS = new ParquetHiveRecordCursorStats();
-    private static TestingConnectorSession parquetCursorSession = new TestingConnectorSession(new HiveSessionProperties(createParquetHiveClientConfig(false, false, false), new OrcFileWriterConfig()).getSessionProperties());
-    private static TestingConnectorSession parquetCursorSessionUseName = new TestingConnectorSession(new HiveSessionProperties(createParquetHiveClientConfig(false, false, true), new OrcFileWriterConfig()).getSessionProperties());
-    private static TestingConnectorSession parquetCursorPushdownSession = new TestingConnectorSession(new HiveSessionProperties(createParquetHiveClientConfig(false, true, false), new OrcFileWriterConfig()).getSessionProperties());
-    private static TestingConnectorSession parquetCursorPushdownSessionUseName = new TestingConnectorSession(new HiveSessionProperties(createParquetHiveClientConfig(false, true, true), new OrcFileWriterConfig()).getSessionProperties());
-    private static TestingConnectorSession parquetPageSourceSession = new TestingConnectorSession(new HiveSessionProperties(createParquetHiveClientConfig(true, false, false), new OrcFileWriterConfig()).getSessionProperties());
-    private static TestingConnectorSession parquetPageSourceSessionUseName = new TestingConnectorSession(new HiveSessionProperties(createParquetHiveClientConfig(true, false, true), new OrcFileWriterConfig()).getSessionProperties());
-    private static TestingConnectorSession parquetPageSourcePushdown = new TestingConnectorSession(new HiveSessionProperties(createParquetHiveClientConfig(true, true, false), new OrcFileWriterConfig()).getSessionProperties());
+    private static TestingConnectorSession parquetPageSourceSession = new TestingConnectorSession(new HiveSessionProperties(createParquetHiveClientConfig(false), new OrcFileWriterConfig(), new ParquetFileWriterConfig()).getSessionProperties());
+    private static TestingConnectorSession parquetPageSourceSessionUseName = new TestingConnectorSession(new HiveSessionProperties(createParquetHiveClientConfig(true), new OrcFileWriterConfig(), new ParquetFileWriterConfig()).getSessionProperties());
 
     private static final DateTimeZone HIVE_STORAGE_TIME_ZONE = DateTimeZone.forID("Asia/Katmandu");
 
@@ -210,7 +189,7 @@ public class TestHiveFileFormats
                 .collect(toImmutableList());
 
         TestingConnectorSession session = new TestingConnectorSession(
-                new HiveSessionProperties(new HiveClientConfig().setRcfileOptimizedWriterEnabled(true), new OrcFileWriterConfig()).getSessionProperties());
+                new HiveSessionProperties(new HiveClientConfig().setRcfileOptimizedWriterEnabled(true), new OrcFileWriterConfig(), new ParquetFileWriterConfig()).getSessionProperties());
 
         assertThatFileFormat(RCTEXT)
                 .withColumns(testColumns)
@@ -264,7 +243,7 @@ public class TestHiveFileFormats
                 .collect(toList());
 
         TestingConnectorSession session = new TestingConnectorSession(
-                new HiveSessionProperties(new HiveClientConfig().setRcfileOptimizedWriterEnabled(true), new OrcFileWriterConfig()).getSessionProperties());
+                new HiveSessionProperties(new HiveClientConfig().setRcfileOptimizedWriterEnabled(true), new OrcFileWriterConfig(), new ParquetFileWriterConfig()).getSessionProperties());
 
         assertThatFileFormat(RCBINARY)
                 .withColumns(testColumns)
@@ -294,7 +273,8 @@ public class TestHiveFileFormats
                         new HiveClientConfig()
                                 .setOrcOptimizedWriterEnabled(true)
                                 .setOrcWriterValidationPercentage(100.0),
-                        new OrcFileWriterConfig()).getSessionProperties());
+                        new OrcFileWriterConfig(),
+                        new ParquetFileWriterConfig()).getSessionProperties());
 
         // A Presto page can not contain a map with null keys, so a page based writer can not write null keys
         List<TestColumn> testColumns = TEST_COLUMNS.stream()
@@ -314,7 +294,7 @@ public class TestHiveFileFormats
     public void testOrcUseColumnNames(int rowCount)
             throws Exception
     {
-        TestingConnectorSession session = new TestingConnectorSession(new HiveSessionProperties(new HiveClientConfig(), new OrcFileWriterConfig()).getSessionProperties());
+        TestingConnectorSession session = new TestingConnectorSession(new HiveSessionProperties(new HiveClientConfig(), new OrcFileWriterConfig(), new ParquetFileWriterConfig()).getSessionProperties());
 
         assertThatFileFormat(ORC)
                 .withWriteColumns(TEST_COLUMNS)
@@ -345,43 +325,6 @@ public class TestHiveFileFormats
     }
 
     @Test(dataProvider = "rowCount")
-    public void testParquet(int rowCount)
-            throws Exception
-    {
-        List<TestColumn> testColumns = getTestColumnsSupportedByParquet();
-        assertThatFileFormat(PARQUET)
-                .withColumns(testColumns)
-                .withRowsCount(rowCount)
-                .withSession(parquetCursorSession)
-                .isReadableByRecordCursor(new ParquetRecordCursorProvider(HDFS_ENVIRONMENT, STATS, SPLIT_STATS));
-        assertThatFileFormat(PARQUET)
-                .withColumns(testColumns)
-                .withRowsCount(rowCount)
-                .withSession(parquetCursorPushdownSession)
-                .isReadableByRecordCursor(new ParquetRecordCursorProvider(HDFS_ENVIRONMENT, STATS, SPLIT_STATS));
-    }
-
-    @Test(dataProvider = "rowCount")
-    public void testParquetCaseInsensitiveColumnLookup(int rowCount)
-            throws Exception
-    {
-        List<TestColumn> writeColumns = ImmutableList.of(new TestColumn("column_name", javaStringObjectInspector, "test", utf8Slice("test"), false));
-        List<TestColumn> readColumns = ImmutableList.of(new TestColumn("Column_Name", javaStringObjectInspector, "test", utf8Slice("test"), false));
-        assertThatFileFormat(PARQUET)
-                .withWriteColumns(writeColumns)
-                .withReadColumns(readColumns)
-                .withRowsCount(rowCount)
-                .withSession(parquetCursorSessionUseName)
-                .isReadableByRecordCursor(new ParquetRecordCursorProvider(HDFS_ENVIRONMENT, STATS, SPLIT_STATS));
-        assertThatFileFormat(PARQUET)
-                .withWriteColumns(writeColumns)
-                .withReadColumns(readColumns)
-                .withRowsCount(rowCount)
-                .withSession(parquetCursorPushdownSessionUseName)
-                .isReadableByRecordCursor(new ParquetRecordCursorProvider(HDFS_ENVIRONMENT, STATS, SPLIT_STATS));
-    }
-
-    @Test(dataProvider = "rowCount")
     public void testParquetPageSource(int rowCount)
             throws Exception
     {
@@ -389,11 +332,6 @@ public class TestHiveFileFormats
         assertThatFileFormat(PARQUET)
                 .withColumns(testColumns)
                 .withSession(parquetPageSourceSession)
-                .withRowsCount(rowCount)
-                .isReadableByPageSource(new ParquetPageSourceFactory(TYPE_MANAGER, HDFS_ENVIRONMENT, STATS));
-        assertThatFileFormat(PARQUET)
-                .withColumns(testColumns)
-                .withSession(parquetPageSourcePushdown)
                 .withRowsCount(rowCount)
                 .isReadableByPageSource(new ParquetPageSourceFactory(TYPE_MANAGER, HDFS_ENVIRONMENT, STATS));
     }
@@ -429,26 +367,6 @@ public class TestHiveFileFormats
                 .isReadableByPageSource(new ParquetPageSourceFactory(TYPE_MANAGER, HDFS_ENVIRONMENT, STATS));
     }
 
-    @Test(dataProvider = "rowCount")
-    public void testParquetUseColumnNames(int rowCount)
-            throws Exception
-    {
-        List<TestColumn> writeColumns = getTestColumnsSupportedByParquet();
-        List<TestColumn> readColumns = Lists.reverse(writeColumns);
-        assertThatFileFormat(PARQUET)
-                .withWriteColumns(writeColumns)
-                .withReadColumns(readColumns)
-                .withRowsCount(rowCount)
-                .withSession(parquetCursorSessionUseName)
-                .isReadableByRecordCursor(new ParquetRecordCursorProvider(HDFS_ENVIRONMENT, STATS, SPLIT_STATS));
-        assertThatFileFormat(PARQUET)
-                .withWriteColumns(writeColumns)
-                .withReadColumns(readColumns)
-                .withRowsCount(rowCount)
-                .withSession(parquetCursorPushdownSessionUseName)
-                .isReadableByRecordCursor(new ParquetRecordCursorProvider(HDFS_ENVIRONMENT, STATS, SPLIT_STATS));
-    }
-
     private static List<TestColumn> getTestColumnsSupportedByParquet()
     {
         // Write of complex hive data to Parquet is broken
@@ -462,271 +380,6 @@ public class TestHiveFileFormats
                         !hasType(column.getObjectInspector(), PrimitiveCategory.SHORT) &&
                         !hasType(column.getObjectInspector(), PrimitiveCategory.BYTE))
                 .collect(toList());
-    }
-
-    @Test(dataProvider = "rowCount")
-    public void testParquetThrift(int rowCount)
-    {
-        RowType nameType = RowType.anonymous(ImmutableList.of(createUnboundedVarcharType(), createUnboundedVarcharType()));
-        RowType phoneType = RowType.anonymous(ImmutableList.of(createUnboundedVarcharType(), createUnboundedVarcharType()));
-        RowType personType = RowType.anonymous(ImmutableList.of(nameType, INTEGER, createUnboundedVarcharType(), new ArrayType(phoneType)));
-
-        List<TestColumn> testColumns = ImmutableList.of(
-                new TestColumn(
-                        "persons",
-                        getStandardListObjectInspector(
-                                getStandardStructObjectInspector(
-                                        ImmutableList.of("name", "id", "email", "phones"),
-                                        ImmutableList.of(
-                                                getStandardStructObjectInspector(
-                                                        ImmutableList.of("first_name", "last_name"),
-                                                        ImmutableList.of(javaStringObjectInspector, javaStringObjectInspector)),
-                                                javaIntObjectInspector,
-                                                javaStringObjectInspector,
-                                                getStandardListObjectInspector(
-                                                        getStandardStructObjectInspector(
-                                                                ImmutableList.of("number", "type"),
-                                                                ImmutableList.of(javaStringObjectInspector, javaStringObjectInspector)))))),
-                        null,
-                        arrayBlockOf(personType,
-                                rowBlockOf(ImmutableList.of(nameType, INTEGER, createUnboundedVarcharType(), new ArrayType(phoneType)),
-                                        rowBlockOf(ImmutableList.of(createUnboundedVarcharType(), createUnboundedVarcharType()), "Bob", "Roberts"),
-                                        0,
-                                        "bob.roberts@example.com",
-                                        arrayBlockOf(phoneType, rowBlockOf(ImmutableList.of(createUnboundedVarcharType(), createUnboundedVarcharType()), "1234567890", null))))));
-
-        File file = new File(this.getClass().getClassLoader().getResource("addressbook.parquet").getPath());
-        FileSplit split = new FileSplit(new Path(file.getAbsolutePath()), 0, file.length(), new String[0]);
-        HiveRecordCursorProvider cursorProvider = new ParquetRecordCursorProvider(HDFS_ENVIRONMENT, STATS, SPLIT_STATS);
-        testCursorProvider(cursorProvider, split, PARQUET, testColumns, SESSION, 1);
-    }
-
-    @Test
-    public void testParquetExtraStructFields1()
-            throws Exception
-    {
-        List<Type> nameTypes = ImmutableList.of(createUnboundedVarcharType(), createUnboundedVarcharType(), createUnboundedVarcharType());
-        RowType nameType = RowType.anonymous(nameTypes);
-        Block expectedNameBlock = rowBlockOf(nameTypes, "Bob", "Roberts", null);
-        StandardStructObjectInspector nameObjectInspector = getStandardStructObjectInspector(
-                ImmutableList.of("first_name", "last_name", "suffix"),
-                ImmutableList.of(javaStringObjectInspector, javaStringObjectInspector, javaStringObjectInspector));
-
-        StandardStructObjectInspector phoneObjectInspector = getStandardStructObjectInspector(
-                ImmutableList.of("number", "type", "fake_name_struct"),
-                ImmutableList.of(javaStringObjectInspector, javaStringObjectInspector, nameObjectInspector));
-        Block expectedPhoneBlock = rowBlockOf(ImmutableList.of(createUnboundedVarcharType(), createUnboundedVarcharType(), nameType), "1234567890", null, null);
-
-        testParquetReadAndVerify(nameType,
-                RowType.anonymous(ImmutableList.of(createUnboundedVarcharType(), createUnboundedVarcharType(), nameType)),
-                nameObjectInspector,
-                phoneObjectInspector,
-                expectedNameBlock,
-                expectedPhoneBlock,
-                true);
-    }
-
-    @Test
-    public void testParquetExtraStructFields2()
-            throws Exception
-    {
-        List<Type> nameTypes = ImmutableList.of(createUnboundedVarcharType(), createUnboundedVarcharType(), createUnboundedVarcharType(), createUnboundedVarcharType());
-        RowType nameType = RowType.anonymous(nameTypes);
-        Block expectedNameBlock = rowBlockOf(nameTypes, "Bob", null, "Roberts", null);
-        StandardStructObjectInspector nameObjectInspector = getStandardStructObjectInspector(
-                ImmutableList.of("first_name", "middle", "last_name", "suffix"),
-                ImmutableList.of(javaStringObjectInspector, javaStringObjectInspector, javaStringObjectInspector, javaStringObjectInspector));
-
-        StandardStructObjectInspector phoneObjectInspector = getStandardStructObjectInspector(
-                ImmutableList.of("fake_name_struct", "number", "type"),
-                ImmutableList.of(nameObjectInspector, javaStringObjectInspector, javaStringObjectInspector));
-        Block expectedPhoneBlock = rowBlockOf(ImmutableList.of(nameType, createUnboundedVarcharType(), createUnboundedVarcharType()), null, "1234567890", null);
-
-        testParquetReadAndVerify(nameType,
-                RowType.anonymous(ImmutableList.of(nameType, createUnboundedVarcharType(), createUnboundedVarcharType())),
-                nameObjectInspector,
-                phoneObjectInspector,
-                expectedNameBlock,
-                expectedPhoneBlock,
-                true);
-    }
-
-    @Test
-    public void testParquetRemovedStructFields1()
-            throws Exception
-    {
-        List<Type> nameTypes = ImmutableList.of(createUnboundedVarcharType(), createUnboundedVarcharType());
-        RowType nameType = RowType.anonymous(nameTypes);
-        Block expectedNameBlock = rowBlockOf(nameTypes, "Bob", null);
-        StandardStructObjectInspector nameObjectInspector = getStandardStructObjectInspector(
-                ImmutableList.of("first_name", "middle"),
-                ImmutableList.of(javaStringObjectInspector, javaStringObjectInspector));
-
-        StandardStructObjectInspector phoneObjectInspector = getStandardStructObjectInspector(
-                ImmutableList.of("number"),
-                ImmutableList.of(javaStringObjectInspector));
-        Block expectedPhoneBlock = rowBlockOf(ImmutableList.of(createUnboundedVarcharType()), "1234567890");
-
-        testParquetReadAndVerify(nameType,
-                RowType.anonymous(ImmutableList.of(createUnboundedVarcharType())),
-                nameObjectInspector,
-                phoneObjectInspector,
-                expectedNameBlock,
-                expectedPhoneBlock,
-                true);
-    }
-
-    @Test
-    public void testParquetRemovedStructFields2()
-            throws Exception
-    {
-        List<Type> nameTypes = ImmutableList.of(createUnboundedVarcharType());
-        RowType nameType = RowType.anonymous(nameTypes);
-        Block expectedNameBlock = rowBlockOf(nameTypes, "Roberts");
-        StandardStructObjectInspector nameObjectInspector = getStandardStructObjectInspector(
-                ImmutableList.of("last_name"),
-                ImmutableList.of(javaStringObjectInspector));
-
-        StandardStructObjectInspector phoneObjectInspector = getStandardStructObjectInspector(
-                ImmutableList.of("fake_name_struct", "number"),
-                ImmutableList.of(nameObjectInspector, javaStringObjectInspector));
-        Block expectedPhoneBlock = rowBlockOf(ImmutableList.of(nameType, createUnboundedVarcharType()), null, "1234567890");
-
-        testParquetReadAndVerify(nameType,
-                RowType.anonymous(ImmutableList.of(nameType, createUnboundedVarcharType())),
-                nameObjectInspector,
-                phoneObjectInspector,
-                expectedNameBlock,
-                expectedPhoneBlock,
-                true);
-    }
-
-    // Currently out-of-order fields in Parquet structs isn't supported
-    @Test(expectedExceptions = PrestoException.class)
-    public void testParquetStructFieldOrderChanged()
-            throws Exception
-    {
-        List<Type> nameTypes = ImmutableList.of(createUnboundedVarcharType(), createUnboundedVarcharType());
-        RowType nameType = RowType.anonymous(nameTypes);
-        Block expectedNameBlock = rowBlockOf(nameTypes, "Roberts", "Bob");
-        StandardStructObjectInspector nameObjectInspector = getStandardStructObjectInspector(
-                ImmutableList.of("last_name", "first_name"),
-                ImmutableList.of(javaStringObjectInspector, javaStringObjectInspector));
-
-        StandardStructObjectInspector phoneObjectInspector = getStandardStructObjectInspector(
-                ImmutableList.of("type", "number"),
-                ImmutableList.of(javaStringObjectInspector, javaStringObjectInspector));
-        Block expectedPhoneBlock = rowBlockOf(ImmutableList.of(createUnboundedVarcharType(), createUnboundedVarcharType()), null, "1234567890");
-
-        testParquetReadAndVerify(nameType,
-                RowType.anonymous(ImmutableList.of(createUnboundedVarcharType(), createUnboundedVarcharType())),
-                nameObjectInspector,
-                phoneObjectInspector,
-                expectedNameBlock,
-                expectedPhoneBlock,
-                true);
-    }
-
-    // Currently out-of-order fields in Parquet structs isn't supported
-    @Test(expectedExceptions = PrestoException.class)
-    public void testParquetStructFieldOrderChangedWithExtraFields()
-            throws Exception
-    {
-        List<Type> nameTypes = ImmutableList.of(createUnboundedVarcharType(), createUnboundedVarcharType(), createUnboundedVarcharType(), createUnboundedVarcharType());
-        RowType nameType = RowType.anonymous(nameTypes);
-        Block expectedNameBlock = rowBlockOf(nameTypes, null, "Roberts", null, "Bob");
-        StandardStructObjectInspector nameObjectInspector = getStandardStructObjectInspector(
-                ImmutableList.of("middle", "last_name", "suffix", "first_name"),
-                ImmutableList.of(javaStringObjectInspector, javaStringObjectInspector, javaStringObjectInspector, javaStringObjectInspector));
-
-        StandardStructObjectInspector phoneObjectInspector = getStandardStructObjectInspector(
-                ImmutableList.of("type", "fake_name_struct", "number"),
-                ImmutableList.of(javaStringObjectInspector, nameObjectInspector, javaStringObjectInspector));
-        Block expectedPhoneBlock = rowBlockOf(ImmutableList.of(createUnboundedVarcharType(), nameType, createUnboundedVarcharType()), null, null, "1234567890");
-
-        testParquetReadAndVerify(nameType,
-                RowType.anonymous(ImmutableList.of(createUnboundedVarcharType(), nameType, createUnboundedVarcharType())),
-                nameObjectInspector,
-                phoneObjectInspector,
-                expectedNameBlock,
-                expectedPhoneBlock,
-                true);
-    }
-
-    @Test
-    public void testParquetThriftUseNames()
-            throws Exception
-    {
-        testParquetThrift(true);
-    }
-
-    @Test
-    public void testParquetThriftUseIndexes()
-            throws Exception
-    {
-        testParquetThrift(false);
-    }
-
-    private void testParquetThrift(boolean useParquetColumnNames)
-            throws Exception
-    {
-        List<Type> nameTypes = ImmutableList.of(createUnboundedVarcharType(), createUnboundedVarcharType());
-        Block expectedNameBlock = rowBlockOf(nameTypes, "Bob", "Roberts");
-        StandardStructObjectInspector nameObjectInspector = getStandardStructObjectInspector(
-                ImmutableList.of("first_name", "last_name"),
-                ImmutableList.of(javaStringObjectInspector, javaStringObjectInspector));
-
-        StandardStructObjectInspector phoneObjectInspector = getStandardStructObjectInspector(
-                ImmutableList.of("number", "type"),
-                ImmutableList.of(javaStringObjectInspector, javaStringObjectInspector));
-        Block expectedPhoneBlock = rowBlockOf(ImmutableList.of(createUnboundedVarcharType(), createUnboundedVarcharType()), "1234567890", null);
-
-        testParquetReadAndVerify(RowType.anonymous(nameTypes),
-                RowType.anonymous(ImmutableList.of(createUnboundedVarcharType(), createUnboundedVarcharType())),
-                nameObjectInspector,
-                phoneObjectInspector,
-                expectedNameBlock,
-                expectedPhoneBlock,
-                useParquetColumnNames);
-    }
-
-    private void testParquetReadAndVerify(RowType nameType,
-            RowType phoneType,
-            StandardStructObjectInspector nameObjectInspector,
-            StandardStructObjectInspector phoneObjectInspector,
-            Block expectedNameBlock,
-            Block expectedPhoneBlock,
-            boolean useParquetColumnNames)
-            throws Exception
-    {
-        RowType personType = RowType.anonymous(ImmutableList.of(nameType, INTEGER, createUnboundedVarcharType(), new ArrayType(phoneType)));
-
-        List<TestColumn> testColumns = ImmutableList.<TestColumn>of(
-                new TestColumn(
-                        "persons",
-                        getStandardListObjectInspector(
-                                getStandardStructObjectInspector(
-                                        ImmutableList.of("name", "id", "email", "phones"),
-                                        ImmutableList.<ObjectInspector>of(
-                                                nameObjectInspector,
-                                                javaIntObjectInspector,
-                                                javaStringObjectInspector,
-                                                getStandardListObjectInspector(phoneObjectInspector)))),
-                        null,
-                        arrayBlockOf(personType,
-                                rowBlockOf(ImmutableList.of(nameType, INTEGER, createUnboundedVarcharType(), new ArrayType(phoneType)),
-                                        expectedNameBlock,
-                                        0,
-                                        "bob.roberts@example.com",
-                                        arrayBlockOf(phoneType, expectedPhoneBlock)))));
-
-        ConnectorSession testSession = new TestingConnectorSession(
-                new HiveSessionProperties(new HiveClientConfig().setUseParquetColumnNames(useParquetColumnNames), new OrcFileWriterConfig()).getSessionProperties());
-
-        File file = new File(this.getClass().getClassLoader().getResource("addressbook.parquet").getPath());
-        FileSplit split = new FileSplit(new Path(file.getAbsolutePath()), 0, file.length(), new String[0]);
-        HiveRecordCursorProvider cursorProvider = new ParquetRecordCursorProvider(HDFS_ENVIRONMENT, STATS, SPLIT_STATS);
-        testCursorProvider(cursorProvider, split, PARQUET, testColumns, testSession, 1);
     }
 
     @Test(dataProvider = "rowCount")
@@ -751,7 +404,8 @@ public class TestHiveFileFormats
                         new HiveClientConfig()
                                 .setOrcOptimizedWriterEnabled(true)
                                 .setOrcWriterValidationPercentage(100.0),
-                        new OrcFileWriterConfig()).getSessionProperties());
+                        new OrcFileWriterConfig(),
+                        new ParquetFileWriterConfig()).getSessionProperties());
 
         // DWRF does not support modern Hive types
         // A Presto page can not contain a map with null keys, so a page based writer can not write null keys
@@ -796,23 +450,7 @@ public class TestHiveFileFormats
         assertThatFileFormat(PARQUET)
                 .withWriteColumns(ImmutableList.of(writeColumn))
                 .withReadColumns(ImmutableList.of(readColumn))
-                .withSession(parquetCursorSession)
-                .isReadableByRecordCursor(new ParquetRecordCursorProvider(HDFS_ENVIRONMENT, STATS, SPLIT_STATS));
-        assertThatFileFormat(PARQUET)
-                .withWriteColumns(ImmutableList.of(writeColumn))
-                .withReadColumns(ImmutableList.of(readColumn))
-                .withSession(parquetCursorPushdownSession)
-                .isReadableByRecordCursor(new ParquetRecordCursorProvider(HDFS_ENVIRONMENT, STATS, SPLIT_STATS));
-
-        assertThatFileFormat(PARQUET)
-                .withWriteColumns(ImmutableList.of(writeColumn))
-                .withReadColumns(ImmutableList.of(readColumn))
                 .withSession(parquetPageSourceSession)
-                .isReadableByPageSource(new ParquetPageSourceFactory(TYPE_MANAGER, HDFS_ENVIRONMENT, STATS));
-        assertThatFileFormat(PARQUET)
-                .withWriteColumns(ImmutableList.of(writeColumn))
-                .withReadColumns(ImmutableList.of(readColumn))
-                .withSession(parquetPageSourcePushdown)
                 .isReadableByPageSource(new ParquetPageSourceFactory(TYPE_MANAGER, HDFS_ENVIRONMENT, STATS));
 
         assertThatFileFormat(AVRO)
@@ -859,20 +497,7 @@ public class TestHiveFileFormats
 
         assertThatFileFormat(PARQUET)
                 .withColumns(columns)
-                .withSession(parquetCursorSession)
-                .isFailingForRecordCursor(new ParquetRecordCursorProvider(HDFS_ENVIRONMENT, STATS, SPLIT_STATS), expectedErrorCode, expectedMessage);
-        assertThatFileFormat(PARQUET)
-                .withColumns(columns)
-                .withSession(parquetCursorPushdownSession)
-                .isFailingForRecordCursor(new ParquetRecordCursorProvider(HDFS_ENVIRONMENT, STATS, SPLIT_STATS), expectedErrorCode, expectedMessage);
-
-        assertThatFileFormat(PARQUET)
-                .withColumns(columns)
                 .withSession(parquetPageSourceSession)
-                .isFailingForPageSource(new ParquetPageSourceFactory(TYPE_MANAGER, HDFS_ENVIRONMENT, STATS), expectedErrorCode, expectedMessage);
-        assertThatFileFormat(PARQUET)
-                .withColumns(columns)
-                .withSession(parquetPageSourcePushdown)
                 .isFailingForPageSource(new ParquetPageSourceFactory(TYPE_MANAGER, HDFS_ENVIRONMENT, STATS), expectedErrorCode, expectedMessage);
 
         assertThatFileFormat(SEQUENCEFILE)
@@ -1019,12 +644,10 @@ public class TestHiveFileFormats
                 .withStorageFormat(hiveStorageFormat);
     }
 
-    private static HiveClientConfig createParquetHiveClientConfig(boolean enableOptimizedReader, boolean enablePredicatePushDown, boolean useParquetColumnNames)
+    private static HiveClientConfig createParquetHiveClientConfig(boolean useParquetColumnNames)
     {
         HiveClientConfig config = new HiveClientConfig();
-        config.setParquetOptimizedReaderEnabled(enableOptimizedReader)
-                .setParquetPredicatePushdownEnabled(enablePredicatePushDown)
-                .setUseParquetColumnNames(useParquetColumnNames);
+        config.setUseParquetColumnNames(useParquetColumnNames);
         return config;
     }
 

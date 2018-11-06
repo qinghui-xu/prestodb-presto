@@ -30,9 +30,9 @@ import java.util.stream.Collectors;
 import static com.facebook.presto.hive.metastore.SortingColumn.Order.ASCENDING;
 import static com.facebook.presto.hive.metastore.SortingColumn.Order.DESCENDING;
 import static com.facebook.presto.spi.StandardErrorCode.INVALID_TABLE_PROPERTY;
-import static com.facebook.presto.spi.session.PropertyMetadata.doubleSessionProperty;
-import static com.facebook.presto.spi.session.PropertyMetadata.integerSessionProperty;
-import static com.facebook.presto.spi.session.PropertyMetadata.stringSessionProperty;
+import static com.facebook.presto.spi.session.PropertyMetadata.doubleProperty;
+import static com.facebook.presto.spi.session.PropertyMetadata.integerProperty;
+import static com.facebook.presto.spi.session.PropertyMetadata.stringProperty;
 import static com.facebook.presto.spi.type.TypeSignature.parseTypeSignature;
 import static com.facebook.presto.spi.type.VarcharType.createUnboundedVarcharType;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -49,6 +49,7 @@ public class HiveTableProperties
     public static final String SORTED_BY_PROPERTY = "sorted_by";
     public static final String ORC_BLOOM_FILTER_COLUMNS = "orc_bloom_filter_columns";
     public static final String ORC_BLOOM_FILTER_FPP = "orc_bloom_filter_fpp";
+    public static final String AVRO_SCHEMA_URL = "avro_schema_url";
 
     private final List<PropertyMetadata<?>> tableProperties;
 
@@ -56,7 +57,7 @@ public class HiveTableProperties
     public HiveTableProperties(TypeManager typeManager, HiveClientConfig config)
     {
         tableProperties = ImmutableList.of(
-                stringSessionProperty(
+                stringProperty(
                         EXTERNAL_LOCATION_PROPERTY,
                         "File system location URI for external table",
                         null,
@@ -119,12 +120,13 @@ public class HiveTableProperties
                                 .map(name -> name.toLowerCase(ENGLISH))
                                 .collect(toImmutableList()),
                         value -> value),
-                doubleSessionProperty(
+                doubleProperty(
                         ORC_BLOOM_FILTER_FPP,
                         "ORC Bloom filter false positive probability",
                         config.getOrcDefaultBloomFilterFpp(),
                         false),
-                integerSessionProperty(BUCKET_COUNT_PROPERTY, "Number of buckets", 0, false));
+                integerProperty(BUCKET_COUNT_PROPERTY, "Number of buckets", 0, false),
+                stringProperty(AVRO_SCHEMA_URL, "URI pointing to Avro schema for the table", null, false));
     }
 
     public List<PropertyMetadata<?>> getTableProperties()
@@ -135,6 +137,11 @@ public class HiveTableProperties
     public static String getExternalLocation(Map<String, Object> tableProperties)
     {
         return (String) tableProperties.get(EXTERNAL_LOCATION_PROPERTY);
+    }
+
+    public static String getAvroSchemaUrl(Map<String, Object> tableProperties)
+    {
+        return (String) tableProperties.get(AVRO_SCHEMA_URL);
     }
 
     public static HiveStorageFormat getHiveStorageFormat(Map<String, Object> tableProperties)

@@ -59,6 +59,7 @@ import static com.google.common.base.Predicates.compose;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static io.airlift.slice.Slices.utf8Slice;
+import static java.util.Locale.ENGLISH;
 import static java.util.Objects.requireNonNull;
 import static java.util.function.Function.identity;
 import static java.util.stream.Collectors.toMap;
@@ -238,24 +239,25 @@ public class InformationSchemaMetadata
 
     private boolean isTablesEnumeratingTable(SchemaTableName schemaTableName)
     {
-        return ImmutableSet.of(TABLE_COLUMNS, TABLE_TABLES, TABLE_TABLES, TABLE_TABLE_PRIVILEGES).contains(schemaTableName);
+        return ImmutableSet.of(TABLE_COLUMNS, TABLE_VIEWS, TABLE_TABLES, TABLE_TABLES, TABLE_TABLE_PRIVILEGES).contains(schemaTableName);
     }
 
     private Set<QualifiedTablePrefix> calculatePrefixesWithSchemaName(
             ConnectorSession connectorSession,
             TupleDomain<ColumnHandle> constraint,
-            Predicate<Map<ColumnHandle, NullableValue>> predicate)
+            Optional<Predicate<Map<ColumnHandle, NullableValue>>> predicate)
     {
         Optional<Set<String>> schemas = filterString(constraint, SCHEMA_COLUMN_HANDLE);
         if (schemas.isPresent()) {
             return schemas.get().stream()
+                    .filter(this::isLowerCase)
                     .map(schema -> new QualifiedTablePrefix(catalogName, schema))
                     .collect(toImmutableSet());
         }
 
         Session session = ((FullConnectorSession) connectorSession).getSession();
         return metadata.listSchemaNames(session, catalogName).stream()
-                .filter(schema -> predicate.test(schemaAsFixedValues(schema)))
+                .filter(schema -> !predicate.isPresent() || predicate.get().test(schemaAsFixedValues(schema)))
                 .map(schema -> new QualifiedTablePrefix(catalogName, schema))
                 .collect(toImmutableSet());
     }
@@ -264,7 +266,7 @@ public class InformationSchemaMetadata
             ConnectorSession connectorSession,
             Set<QualifiedTablePrefix> prefixes,
             TupleDomain<ColumnHandle> constraint,
-            Predicate<Map<ColumnHandle, NullableValue>> predicate)
+            Optional<Predicate<Map<ColumnHandle, NullableValue>>> predicate)
     {
         Session session = ((FullConnectorSession) connectorSession).getSession();
 
@@ -272,6 +274,8 @@ public class InformationSchemaMetadata
         if (tables.isPresent()) {
             return prefixes.stream()
                     .flatMap(prefix -> tables.get().stream()
+                            .filter(this::isLowerCase)
+                            .map(table -> table.toLowerCase(ENGLISH))
                             .map(table -> new QualifiedObjectName(catalogName, prefix.getSchemaName().get(), table)))
                     .filter(objectName -> metadata.getTableHandle(session, objectName).isPresent() || metadata.getView(session, objectName).isPresent())
                     .map(QualifiedObjectName::asQualifiedTablePrefix)
@@ -282,7 +286,7 @@ public class InformationSchemaMetadata
                 .flatMap(prefix -> Stream.concat(
                         metadata.listTables(session, prefix).stream(),
                         metadata.listViews(session, prefix).stream()))
-                .filter(objectName -> predicate.test(asFixedValues(objectName)))
+                .filter(objectName -> !predicate.isPresent() || predicate.get().test(asFixedValues(objectName)))
                 .map(QualifiedObjectName::asQualifiedTablePrefix)
                 .collect(toImmutableSet());
     }
@@ -334,5 +338,10 @@ public class InformationSchemaMetadata
     {
         checkArgument(TABLES.containsKey(tableName), "table does not exist: %s", tableName);
         return TABLES.get(tableName).getColumns();
+    }
+
+    private boolean isLowerCase(String value)
+    {
+        return value.toLowerCase(ENGLISH).equals(value);
     }
 }

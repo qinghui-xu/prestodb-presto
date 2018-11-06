@@ -18,9 +18,9 @@ import com.facebook.presto.connector.ConnectorManager;
 import com.facebook.presto.cost.StatsCalculator;
 import com.facebook.presto.eventlistener.EventListenerManager;
 import com.facebook.presto.execution.QueryManager;
+import com.facebook.presto.execution.SqlQueryManager;
 import com.facebook.presto.execution.TaskManager;
 import com.facebook.presto.execution.resourceGroups.InternalResourceGroupManager;
-import com.facebook.presto.execution.resourceGroups.ResourceGroupManager;
 import com.facebook.presto.memory.ClusterMemoryManager;
 import com.facebook.presto.memory.LocalMemoryManager;
 import com.facebook.presto.metadata.AllNodes;
@@ -36,12 +36,16 @@ import com.facebook.presto.server.ShutdownAction;
 import com.facebook.presto.server.security.ServerSecurityModule;
 import com.facebook.presto.spi.Node;
 import com.facebook.presto.spi.Plugin;
+import com.facebook.presto.spi.QueryId;
+import com.facebook.presto.split.PageSourceManager;
 import com.facebook.presto.split.SplitManager;
 import com.facebook.presto.sql.parser.SqlParserOptions;
 import com.facebook.presto.sql.planner.NodePartitioningManager;
+import com.facebook.presto.sql.planner.Plan;
 import com.facebook.presto.testing.ProcedureTester;
 import com.facebook.presto.testing.TestingAccessControlManager;
 import com.facebook.presto.testing.TestingEventListenerManager;
+import com.facebook.presto.testing.TestingWarningCollectorModule;
 import com.facebook.presto.transaction.TransactionManager;
 import com.google.common.base.Joiner;
 import com.google.common.base.Splitter;
@@ -113,13 +117,14 @@ public class TestingPrestoServer
     private final ProcedureTester procedureTester;
     private final Optional<InternalResourceGroupManager> resourceGroupManager;
     private final SplitManager splitManager;
+    private final PageSourceManager pageSourceManager;
     private final NodePartitioningManager nodePartitioningManager;
     private final ClusterMemoryManager clusterMemoryManager;
     private final LocalMemoryManager localMemoryManager;
     private final InternalNodeManager nodeManager;
     private final ServiceSelectorManager serviceSelectorManager;
     private final Announcer announcer;
-    private final QueryManager queryManager;
+    private final SqlQueryManager queryManager;
     private final TaskManager taskManager;
     private final GracefulShutdownHandler gracefulShutdownHandler;
     private final ShutdownAction shutdownAction;
@@ -205,6 +210,7 @@ public class TestingPrestoServer
                 .add(new TraceTokenModule())
                 .add(new ServerSecurityModule())
                 .add(new ServerMainModule(parserOptions))
+                .add(new TestingWarningCollectorModule())
                 .add(binder -> {
                     binder.bind(TestingAccessControlManager.class).in(Scopes.SINGLETON);
                     binder.bind(TestingEventListenerManager.class).in(Scopes.SINGLETON);
@@ -246,7 +252,12 @@ public class TestingPrestoServer
 
         lifeCycleManager = injector.getInstance(LifeCycleManager.class);
 
-        queryManager = injector.getInstance(QueryManager.class);
+        if (coordinator) {
+            queryManager = (SqlQueryManager) injector.getInstance(QueryManager.class);
+        }
+        else {
+            queryManager = null;
+        }
 
         pluginManager = injector.getInstance(PluginManager.class);
 
@@ -256,19 +267,21 @@ public class TestingPrestoServer
         catalogManager = injector.getInstance(CatalogManager.class);
         transactionManager = injector.getInstance(TransactionManager.class);
         metadata = injector.getInstance(Metadata.class);
-        statsCalculator = injector.getInstance(StatsCalculator.class);
         accessControl = injector.getInstance(TestingAccessControlManager.class);
         procedureTester = injector.getInstance(ProcedureTester.class);
         splitManager = injector.getInstance(SplitManager.class);
+        pageSourceManager = injector.getInstance(PageSourceManager.class);
         if (coordinator) {
-            resourceGroupManager = Optional.of((InternalResourceGroupManager) injector.getInstance(ResourceGroupManager.class));
+            resourceGroupManager = Optional.of(injector.getInstance(InternalResourceGroupManager.class));
             nodePartitioningManager = injector.getInstance(NodePartitioningManager.class);
             clusterMemoryManager = injector.getInstance(ClusterMemoryManager.class);
+            statsCalculator = injector.getInstance(StatsCalculator.class);
         }
         else {
             resourceGroupManager = Optional.empty();
             nodePartitioningManager = null;
             clusterMemoryManager = null;
+            statsCalculator = null;
         }
         localMemoryManager = injector.getInstance(LocalMemoryManager.class);
         nodeManager = injector.getInstance(InternalNodeManager.class);
@@ -311,6 +324,11 @@ public class TestingPrestoServer
     public QueryManager getQueryManager()
     {
         return queryManager;
+    }
+
+    public Plan getQueryPlan(QueryId queryId)
+    {
+        return queryManager.getQueryPlan(queryId);
     }
 
     public ConnectorId createCatalog(String catalogName, String connectorName)
@@ -368,6 +386,7 @@ public class TestingPrestoServer
 
     public StatsCalculator getStatsCalculator()
     {
+        checkState(coordinator, "not a coordinator");
         return statsCalculator;
     }
 
@@ -384,6 +403,11 @@ public class TestingPrestoServer
     public SplitManager getSplitManager()
     {
         return splitManager;
+    }
+
+    public PageSourceManager getPageSourceManager()
+    {
+        return pageSourceManager;
     }
 
     public Optional<InternalResourceGroupManager> getResourceGroupManager()

@@ -24,14 +24,12 @@ import com.facebook.presto.hive.HiveStorageFormat;
 import com.facebook.presto.hive.HiveType;
 import com.facebook.presto.hive.HiveTypeName;
 import com.facebook.presto.hive.HiveTypeTranslator;
-import com.facebook.presto.hive.ParquetHiveRecordCursorStats;
 import com.facebook.presto.hive.RecordFileWriter;
 import com.facebook.presto.hive.TypeTranslator;
 import com.facebook.presto.hive.benchmark.HiveFileFormatBenchmark.TestData;
 import com.facebook.presto.hive.orc.DwrfPageSourceFactory;
 import com.facebook.presto.hive.orc.OrcPageSourceFactory;
 import com.facebook.presto.hive.parquet.ParquetPageSourceFactory;
-import com.facebook.presto.hive.parquet.ParquetRecordCursorProvider;
 import com.facebook.presto.hive.rcfile.RcFilePageSourceFactory;
 import com.facebook.presto.orc.OrcWriter;
 import com.facebook.presto.orc.OrcWriterOptions;
@@ -205,7 +203,7 @@ public enum FileFormat
                 List<Type> columnTypes,
                 HiveCompressionCodec compressionCodec)
         {
-            return new RecordFormatWriter(targetFile, columnNames, columnTypes, compressionCodec, HiveStorageFormat.PARQUET);
+            return new RecordFormatWriter(targetFile, columnNames, columnTypes, compressionCodec, HiveStorageFormat.PARQUET, session);
         }
     },
 
@@ -225,7 +223,7 @@ public enum FileFormat
                 List<Type> columnTypes,
                 HiveCompressionCodec compressionCodec)
         {
-            return new RecordFormatWriter(targetFile, columnNames, columnTypes, compressionCodec, HiveStorageFormat.RCBINARY);
+            return new RecordFormatWriter(targetFile, columnNames, columnTypes, compressionCodec, HiveStorageFormat.RCBINARY, session);
         }
     },
 
@@ -245,7 +243,7 @@ public enum FileFormat
                 List<Type> columnTypes,
                 HiveCompressionCodec compressionCodec)
         {
-            return new RecordFormatWriter(targetFile, columnNames, columnTypes, compressionCodec, HiveStorageFormat.RCTEXT);
+            return new RecordFormatWriter(targetFile, columnNames, columnTypes, compressionCodec, HiveStorageFormat.RCTEXT, session);
         }
     },
 
@@ -265,7 +263,7 @@ public enum FileFormat
                 List<Type> columnTypes,
                 HiveCompressionCodec compressionCodec)
         {
-            return new RecordFormatWriter(targetFile, columnNames, columnTypes, compressionCodec, HiveStorageFormat.ORC);
+            return new RecordFormatWriter(targetFile, columnNames, columnTypes, compressionCodec, HiveStorageFormat.ORC, session);
         }
     },
 
@@ -285,7 +283,7 @@ public enum FileFormat
                 List<Type> columnTypes,
                 HiveCompressionCodec compressionCodec)
         {
-            return new RecordFormatWriter(targetFile, columnNames, columnTypes, compressionCodec, HiveStorageFormat.DWRF);
+            return new RecordFormatWriter(targetFile, columnNames, columnTypes, compressionCodec, HiveStorageFormat.DWRF, session);
         }
 
         @Override
@@ -299,8 +297,8 @@ public enum FileFormat
         @Override
         public ConnectorPageSource createFileFormatReader(ConnectorSession session, HdfsEnvironment hdfsEnvironment, File targetFile, List<String> columnNames, List<Type> columnTypes)
         {
-            HiveRecordCursorProvider cursorProvider = new ParquetRecordCursorProvider(hdfsEnvironment, new FileFormatDataSourceStats(), new ParquetHiveRecordCursorStats());
-            return createPageSource(cursorProvider, session, targetFile, columnNames, columnTypes, HiveStorageFormat.PARQUET);
+            HivePageSourceFactory pageSourceFactory = new ParquetPageSourceFactory(TYPE_MANAGER, hdfsEnvironment, new FileFormatDataSourceStats());
+            return createPageSource(pageSourceFactory, session, targetFile, columnNames, columnTypes, HiveStorageFormat.PARQUET);
         }
 
         @Override
@@ -311,7 +309,7 @@ public enum FileFormat
                 List<Type> columnTypes,
                 HiveCompressionCodec compressionCodec)
         {
-            return new RecordFormatWriter(targetFile, columnNames, columnTypes, compressionCodec, HiveStorageFormat.PARQUET);
+            return new RecordFormatWriter(targetFile, columnNames, columnTypes, compressionCodec, HiveStorageFormat.PARQUET, session);
         }
     };
 
@@ -416,7 +414,8 @@ public enum FileFormat
                 List<String> columnNames,
                 List<Type> columnTypes,
                 HiveCompressionCodec compressionCodec,
-                HiveStorageFormat format)
+                HiveStorageFormat format,
+                ConnectorSession session)
         {
             JobConf config = new JobConf(conf);
             configureCompression(config, compressionCodec);
@@ -428,7 +427,8 @@ public enum FileFormat
                     createSchema(format, columnNames, columnTypes),
                     format.getEstimatedWriterSystemMemoryUsage(),
                     config,
-                    TYPE_MANAGER);
+                    TYPE_MANAGER,
+                    session);
         }
 
         @Override

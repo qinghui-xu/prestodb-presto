@@ -16,6 +16,8 @@ package com.facebook.presto.execution;
 import com.facebook.presto.Session;
 import com.facebook.presto.memory.ClusterMemoryManager;
 import com.facebook.presto.memory.VersionedMemoryPoolId;
+import com.facebook.presto.server.BasicQueryInfo;
+import com.facebook.presto.spi.ErrorCode;
 import com.facebook.presto.spi.QueryId;
 import com.facebook.presto.spi.resourceGroups.ResourceGroupId;
 import com.facebook.presto.sql.planner.Plan;
@@ -23,6 +25,7 @@ import com.google.common.util.concurrent.ListenableFuture;
 import io.airlift.concurrent.SetThreadName;
 import io.airlift.units.DataSize;
 import io.airlift.units.Duration;
+import org.joda.time.DateTime;
 
 import javax.annotation.concurrent.GuardedBy;
 
@@ -54,6 +57,12 @@ public class MemoryAwareQueryExecution
     public QueryId getQueryId()
     {
         return delegate.getQueryId();
+    }
+
+    @Override
+    public Session getSession()
+    {
+        return delegate.getSession();
     }
 
     @Override
@@ -111,13 +120,49 @@ public class MemoryAwareQueryExecution
     }
 
     @Override
-    public long getUserMemoryReservation()
+    public Optional<ErrorCode> getErrorCode()
+    {
+        return delegate.getErrorCode();
+    }
+
+    @Override
+    public BasicQueryInfo getBasicQueryInfo()
+    {
+        return delegate.getBasicQueryInfo();
+    }
+
+    @Override
+    public DateTime getCreateTime()
+    {
+        return delegate.getCreateTime();
+    }
+
+    @Override
+    public Optional<DateTime> getExecutionStartTime()
+    {
+        return delegate.getExecutionStartTime();
+    }
+
+    @Override
+    public DateTime getLastHeartbeat()
+    {
+        return delegate.getLastHeartbeat();
+    }
+
+    @Override
+    public Optional<DateTime> getEndTime()
+    {
+        return delegate.getEndTime();
+    }
+
+    @Override
+    public DataSize getUserMemoryReservation()
     {
         return delegate.getUserMemoryReservation();
     }
 
     @Override
-    public long getTotalMemoryReservation()
+    public DataSize getTotalMemoryReservation()
     {
         return delegate.getTotalMemoryReservation();
     }
@@ -126,12 +171,6 @@ public class MemoryAwareQueryExecution
     public Duration getTotalCpuTime()
     {
         return delegate.getTotalCpuTime();
-    }
-
-    @Override
-    public Session getSession()
-    {
-        return delegate.getSession();
     }
 
     @Override
@@ -154,7 +193,9 @@ public class MemoryAwareQueryExecution
                     startedWaiting = true;
                     delegate.startWaitingForResources();
                     memoryManager.addChangeListener(GENERAL_POOL, none -> start());
-                    memoryManager.addChangeListener(RESERVED_POOL, none -> start());
+                    if (memoryManager.memoryPoolExists(RESERVED_POOL)) {
+                        memoryManager.addChangeListener(RESERVED_POOL, none -> start());
+                    }
                 }
             }
             catch (Throwable e) {
@@ -168,6 +209,12 @@ public class MemoryAwareQueryExecution
     public void fail(Throwable cause)
     {
         delegate.fail(cause);
+    }
+
+    @Override
+    public boolean isDone()
+    {
+        return getState().isDone();
     }
 
     @Override

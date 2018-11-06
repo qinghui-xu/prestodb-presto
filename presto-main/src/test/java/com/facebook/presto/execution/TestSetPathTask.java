@@ -14,7 +14,9 @@
 package com.facebook.presto.execution;
 
 import com.facebook.presto.block.BlockEncodingManager;
+import com.facebook.presto.execution.warnings.WarningCollector;
 import com.facebook.presto.metadata.CatalogManager;
+import com.facebook.presto.metadata.ColumnPropertyManager;
 import com.facebook.presto.metadata.MetadataManager;
 import com.facebook.presto.metadata.SchemaPropertyManager;
 import com.facebook.presto.metadata.SessionPropertyManager;
@@ -39,7 +41,7 @@ import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 
 import static com.facebook.presto.SessionTestUtils.TEST_SESSION;
-import static com.facebook.presto.transaction.TransactionManager.createTestTransactionManager;
+import static com.facebook.presto.transaction.InMemoryTransactionManager.createTestTransactionManager;
 import static io.airlift.concurrent.MoreFutures.getFutureValue;
 import static io.airlift.concurrent.Threads.daemonThreadsNamed;
 import static java.util.Collections.emptyList;
@@ -67,6 +69,7 @@ public class TestSetPathTask
                 new SessionPropertyManager(),
                 new SchemaPropertyManager(),
                 new TablePropertyManager(),
+                new ColumnPropertyManager(),
                 transactionManager);
     }
 
@@ -111,7 +114,8 @@ public class TestSetPathTask
                 transactionManager,
                 accessControl,
                 executor,
-                metadata);
+                metadata,
+                WarningCollector.NOOP);
     }
 
     private void executeSetPathTask(PathSpecification pathSpecification, QueryStateMachine stateMachine)

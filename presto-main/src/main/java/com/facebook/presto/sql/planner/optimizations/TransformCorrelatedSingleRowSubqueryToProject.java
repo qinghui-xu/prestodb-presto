@@ -15,6 +15,7 @@
 package com.facebook.presto.sql.planner.optimizations;
 
 import com.facebook.presto.Session;
+import com.facebook.presto.execution.warnings.WarningCollector;
 import com.facebook.presto.sql.planner.PlanNodeIdAllocator;
 import com.facebook.presto.sql.planner.SymbolAllocator;
 import com.facebook.presto.sql.planner.TypeProvider;
@@ -47,6 +48,7 @@ import static java.util.Objects.requireNonNull;
  *       - (input) plan which produces symbols: [A, B, C]
  * </pre>
  */
+@Deprecated
 public class TransformCorrelatedSingleRowSubqueryToProject
         implements PlanOptimizer
 {
@@ -56,7 +58,8 @@ public class TransformCorrelatedSingleRowSubqueryToProject
             Session session,
             TypeProvider types,
             SymbolAllocator symbolAllocator,
-            PlanNodeIdAllocator idAllocator)
+            PlanNodeIdAllocator idAllocator,
+            WarningCollector warningCollector)
     {
         return rewriteWith(new Rewriter(idAllocator), plan, null);
     }
@@ -88,8 +91,8 @@ public class TransformCorrelatedSingleRowSubqueryToProject
                 return rewrittenLateral;
             }
 
-            List<ProjectNode> subqueryProjections = searchFrom(lateral.getSubquery())
-                    .where(ProjectNode.class::isInstance)
+            List<ProjectNode> subqueryProjections = searchFrom(rewrittenLateral.getSubquery())
+                    .where(node -> node instanceof ProjectNode && !node.getOutputSymbols().equals(rewrittenLateral.getCorrelation()))
                     .findAll();
 
             if (subqueryProjections.size() == 0) {

@@ -18,8 +18,11 @@ import com.facebook.presto.cost.CachingCostProvider;
 import com.facebook.presto.cost.CachingStatsProvider;
 import com.facebook.presto.cost.CostCalculator;
 import com.facebook.presto.cost.CostProvider;
+import com.facebook.presto.cost.PlanNodeStatsEstimate;
+import com.facebook.presto.cost.StatsAndCosts;
 import com.facebook.presto.cost.StatsCalculator;
 import com.facebook.presto.cost.StatsProvider;
+import com.facebook.presto.execution.warnings.WarningCollector;
 import com.facebook.presto.matching.Match;
 import com.facebook.presto.metadata.Metadata;
 import com.facebook.presto.security.AccessControl;
@@ -33,14 +36,16 @@ import com.facebook.presto.sql.planner.iterative.Memo;
 import com.facebook.presto.sql.planner.iterative.PlanNodeMatcher;
 import com.facebook.presto.sql.planner.iterative.Rule;
 import com.facebook.presto.sql.planner.plan.PlanNode;
+import com.facebook.presto.sql.planner.plan.PlanNodeId;
 import com.facebook.presto.transaction.TransactionManager;
 import com.google.common.collect.ImmutableSet;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Stream;
 
-import static com.facebook.presto.cost.PlanNodeCostEstimate.UNKNOWN_COST;
 import static com.facebook.presto.sql.planner.assertions.PlanAssert.assertPlan;
 import static com.facebook.presto.sql.planner.planPrinter.PlanPrinter.textLogicalPlan;
 import static com.facebook.presto.transaction.TransactionBuilder.transaction;
@@ -51,7 +56,7 @@ import static org.testng.Assert.fail;
 public class RuleAssert
 {
     private final Metadata metadata;
-    private final StatsCalculator statsCalculator;
+    private TestingStatsCalculator statsCalculator;
     private final CostCalculator costCalculator;
     private Session session;
     private final Rule<?> rule;
@@ -66,7 +71,7 @@ public class RuleAssert
     public RuleAssert(Metadata metadata, StatsCalculator statsCalculator, CostCalculator costCalculator, Session session, Rule rule, TransactionManager transactionManager, AccessControl accessControl)
     {
         this.metadata = metadata;
-        this.statsCalculator = statsCalculator;
+        this.statsCalculator = new TestingStatsCalculator(statsCalculator);
         this.costCalculator = costCalculator;
         this.session = session;
         this.rule = rule;
@@ -84,6 +89,12 @@ public class RuleAssert
     public RuleAssert withSession(Session session)
     {
         this.session = session;
+        return this;
+    }
+
+    public RuleAssert overrideStats(String nodeId, PlanNodeStatsEstimate nodeStats)
+    {
+        statsCalculator.setNodeStats(new PlanNodeId(nodeId), nodeStats);
         return this;
     }
 
@@ -105,7 +116,7 @@ public class RuleAssert
             fail(String.format(
                     "Expected %s to not fire for:\n%s",
                     rule.getClass().getName(),
-                    inTransaction(session -> textLogicalPlan(plan, ruleApplication.types, metadata.getFunctionRegistry(), ruleApplication.statsProvider, node -> UNKNOWN_COST, session, 2))));
+                    inTransaction(session -> textLogicalPlan(plan, ruleApplication.types, metadata.getFunctionRegistry(), StatsAndCosts.empty(), session, 2))));
         }
     }
 
@@ -141,7 +152,7 @@ public class RuleAssert
         }
 
         inTransaction(session -> {
-            assertPlan(session, metadata, ruleApplication.statsProvider, new Plan(actual, types), ruleApplication.lookup, pattern);
+            assertPlan(session, metadata, ruleApplication.statsProvider, new Plan(actual, types, StatsAndCosts.empty()), ruleApplication.lookup, pattern);
             return null;
         });
     }
@@ -175,7 +186,9 @@ public class RuleAssert
 
     private String formatPlan(PlanNode plan, TypeProvider types)
     {
-        return inTransaction(session -> textLogicalPlan(plan, types, metadata.getFunctionRegistry(), statsCalculator, costCalculator, session, 2));
+        StatsProvider statsProvider = new CachingStatsProvider(statsCalculator, session, types);
+        CostProvider costProvider = new CachingCostProvider(costCalculator, statsProvider, session, types);
+        return inTransaction(session -> textLogicalPlan(plan, types, metadata.getFunctionRegistry(), StatsAndCosts.create(plan, statsProvider, costProvider), session, 2, false));
     }
 
     private <T> T inTransaction(Function<Session, T> transactionSessionConsumer)
@@ -192,7 +205,7 @@ public class RuleAssert
     private Rule.Context ruleContext(StatsCalculator statsCalculator, CostCalculator costCalculator, SymbolAllocator symbolAllocator, Memo memo, Lookup lookup, Session session)
     {
         StatsProvider statsProvider = new CachingStatsProvider(statsCalculator, Optional.of(memo), lookup, session, symbolAllocator.getTypes());
-        CostProvider costProvider = new CachingCostProvider(costCalculator, statsProvider, Optional.of(memo), lookup, session, symbolAllocator.getTypes());
+        CostProvider costProvider = new CachingCostProvider(costCalculator, statsProvider, Optional.of(memo), session, symbolAllocator.getTypes());
 
         return new Rule.Context()
         {
@@ -231,6 +244,15 @@ public class RuleAssert
             {
                 return costProvider;
             }
+
+            @Override
+            public void checkTimeoutNotExhausted() {}
+
+            @Override
+            public WarningCollector getWarningCollector()
+            {
+                return WarningCollector.NOOP;
+            }
         };
     }
 
@@ -257,6 +279,32 @@ public class RuleAssert
         public PlanNode getTransformedPlan()
         {
             return result.getTransformedPlan().orElseThrow(() -> new IllegalStateException("Rule did not produce transformed plan"));
+        }
+    }
+
+    private static class TestingStatsCalculator
+            implements StatsCalculator
+    {
+        private final StatsCalculator delegate;
+        private final Map<PlanNodeId, PlanNodeStatsEstimate> stats = new HashMap<>();
+
+        TestingStatsCalculator(StatsCalculator delegate)
+        {
+            this.delegate = requireNonNull(delegate, "delegate is null");
+        }
+
+        @Override
+        public PlanNodeStatsEstimate calculateStats(PlanNode node, StatsProvider sourceStats, Lookup lookup, Session session, TypeProvider types)
+        {
+            if (stats.containsKey(node.getId())) {
+                return stats.get(node.getId());
+            }
+            return delegate.calculateStats(node, sourceStats, lookup, session, types);
+        }
+
+        public void setNodeStats(PlanNodeId nodeId, PlanNodeStatsEstimate nodeStats)
+        {
+            stats.put(nodeId, nodeStats);
         }
     }
 }
