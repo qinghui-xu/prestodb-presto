@@ -195,7 +195,7 @@ public class BenchmarkPartitionedOutputOperator
             return TestingTaskContext.builder(EXECUTOR, SCHEDULER, TEST_SESSION)
                     .setMemoryPoolSize(MAX_MEMORY)
                     .build()
-                    .addPipelineContext(0, true, true)
+                    .addPipelineContext(0, true, true, false)
                     .addDriverContext();
         }
 
@@ -206,7 +206,7 @@ public class BenchmarkPartitionedOutputOperator
                     new StateMachine<>("bufferState", SCHEDULER, OPEN, TERMINAL_BUFFER_STATES),
                     buffers,
                     dataSize,
-                    () -> new SimpleLocalMemoryContext(newSimpleAggregatedMemoryContext()),
+                    () -> new SimpleLocalMemoryContext(newSimpleAggregatedMemoryContext(), "test"),
                     SCHEDULER);
         }
     }

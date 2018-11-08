@@ -52,8 +52,10 @@ import static com.facebook.presto.SessionTestUtils.TEST_SESSION;
 import static com.facebook.presto.execution.TaskTestUtils.PLAN_FRAGMENT;
 import static com.facebook.presto.execution.TaskTestUtils.SPLIT;
 import static com.facebook.presto.execution.TaskTestUtils.TABLE_SCAN_NODE_ID;
-import static com.facebook.presto.execution.TaskTestUtils.createTestQueryMonitor;
+import static com.facebook.presto.execution.TaskTestUtils.createTestSplitMonitor;
 import static com.facebook.presto.execution.TaskTestUtils.createTestingPlanner;
+import static com.facebook.presto.testing.TestingSession.testSessionBuilder;
+import static com.google.common.util.concurrent.MoreExecutors.directExecutor;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertNotEquals;
 import static org.testng.Assert.assertNotNull;
@@ -238,7 +240,7 @@ public class TestSqlTaskManager
                 createTestingPlanner(),
                 new MockLocationFactory(),
                 taskExecutor,
-                createTestQueryMonitor(),
+                createTestSplitMonitor(),
                 new NodeInfo("test"),
                 localMemoryManager,
                 taskManagementExecutor,
@@ -261,6 +263,8 @@ public class TestSqlTaskManager
 
     private TaskInfo createTask(SqlTaskManager sqlTaskManager, TaskId taskId, OutputBuffers outputBuffers)
     {
+        sqlTaskManager.getQueryContext(taskId.getQueryId())
+                .addTaskContext(new TaskStateMachine(taskId, directExecutor()), testSessionBuilder().build(), false, false, OptionalInt.empty());
         return sqlTaskManager.updateTask(TEST_SESSION,
                 taskId,
                 Optional.of(PLAN_FRAGMENT),

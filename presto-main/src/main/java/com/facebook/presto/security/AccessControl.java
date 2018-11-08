@@ -19,9 +19,9 @@ import com.facebook.presto.spi.SchemaTableName;
 import com.facebook.presto.spi.security.Identity;
 import com.facebook.presto.spi.security.Privilege;
 import com.facebook.presto.transaction.TransactionId;
-import com.google.common.collect.ImmutableSet;
 
 import java.security.Principal;
+import java.util.Optional;
 import java.util.Set;
 
 public interface AccessControl
@@ -31,7 +31,7 @@ public interface AccessControl
      *
      * @throws com.facebook.presto.spi.security.AccessDeniedException if not allowed
      */
-    void checkCanSetUser(Principal principal, String userName);
+    void checkCanSetUser(Optional<Principal> principal, String userName);
 
     /**
      * Filter the list of catalogs to those visible to the identity.
@@ -139,18 +139,6 @@ public interface AccessControl
     void checkCanRenameColumn(TransactionId transactionId, Identity identity, QualifiedObjectName tableName);
 
     /**
-     * Check if identity is allowed to select from the specified table.
-     *
-     * @throws com.facebook.presto.spi.security.AccessDeniedException if not allowed
-     * @deprecated Use {@link #checkCanSelectFromColumns} instead
-     */
-    @Deprecated
-    default void checkCanSelectFromTable(TransactionId transactionId, Identity identity, QualifiedObjectName tableName)
-    {
-        checkCanSelectFromColumns(transactionId, identity, tableName, ImmutableSet.of());
-    }
-
-    /**
      * Check if identity is allowed to insert into the specified table.
      *
      * @throws com.facebook.presto.spi.security.AccessDeniedException if not allowed
@@ -179,44 +167,7 @@ public interface AccessControl
     void checkCanDropView(TransactionId transactionId, Identity identity, QualifiedObjectName viewName);
 
     /**
-     * Check if identity is allowed to select from the specified view.
-     *
-     * @throws com.facebook.presto.spi.security.AccessDeniedException if not allowed
-     * @deprecated Use {@link #checkCanSelectFromColumns} instead
-     */
-    @Deprecated
-    default void checkCanSelectFromView(TransactionId transactionId, Identity identity, QualifiedObjectName viewName)
-    {
-        checkCanSelectFromColumns(transactionId, identity, viewName, ImmutableSet.of());
-    }
-
-    /**
-     * Check if identity is allowed to create a view that selects from the specified table.
-     *
-     * @throws com.facebook.presto.spi.security.AccessDeniedException if not allowed
-     * @deprecated Use {@link #checkCanCreateViewWithSelectFromColumns} instead
-     */
-    @Deprecated
-    default void checkCanCreateViewWithSelectFromTable(TransactionId transactionId, Identity identity, QualifiedObjectName tableName)
-    {
-        checkCanCreateViewWithSelectFromColumns(transactionId, identity, tableName, ImmutableSet.of());
-    }
-
-    /**
-     * Check if identity is allowed to create a view that selects from the specified view.
-     *
-     * @throws com.facebook.presto.spi.security.AccessDeniedException if not allowed
-     * @deprecated Use {@link #checkCanCreateViewWithSelectFromColumns} instead
-     */
-    @Deprecated
-    default void checkCanCreateViewWithSelectFromView(TransactionId transactionId, Identity identity, QualifiedObjectName viewName)
-    {
-        checkCanCreateViewWithSelectFromColumns(transactionId, identity, viewName, ImmutableSet.of());
-    }
-
-    /**
      * Check if identity is allowed to create a view that selects from the specified columns.
-     * If this is implemented, checkCanCreateViewWithSelectFromTable and checkCanCreateViewWithSelectFromView can be pass-through.
      *
      * @throws com.facebook.presto.spi.security.AccessDeniedException if not allowed
      */
@@ -252,7 +203,6 @@ public interface AccessControl
 
     /**
      * Check if identity is allowed to select from the specified columns.  The column set can be empty.
-     * If this is implemented, checkCanSelectFromTable and checkCanSelectFromView can be pass-through.
      *
      * @throws com.facebook.presto.spi.security.AccessDeniedException if not allowed
      */

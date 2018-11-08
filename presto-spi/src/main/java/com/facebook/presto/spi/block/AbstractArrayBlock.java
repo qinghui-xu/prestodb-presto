@@ -111,9 +111,10 @@ public abstract class AbstractArrayBlock
         Block newValues = getRawElementBlock().copyRegion(startValueOffset, endValueOffset - startValueOffset);
 
         int[] newOffsets = compactOffsets(getOffsets(), position + getOffsetBase(), length);
-        boolean[] newValueIsNull = compactArray(getValueIsNull(), position + getOffsetBase(), length);
+        boolean[] valueIsNull = getValueIsNull();
+        boolean[] newValueIsNull = valueIsNull == null ? null : compactArray(valueIsNull, position + getOffsetBase(), length);
 
-        if (newValues == getRawElementBlock() && newOffsets == getOffsets() && newValueIsNull == getValueIsNull()) {
+        if (newValues == getRawElementBlock() && newOffsets == getOffsets() && newValueIsNull == valueIsNull) {
             return this;
         }
         return createArrayBlockInternal(0, length, newValueIsNull, newOffsets, newValues);
@@ -157,10 +158,31 @@ public abstract class AbstractArrayBlock
     }
 
     @Override
+    public long getEstimatedDataSizeForStats(int position)
+    {
+        checkReadablePosition(position);
+
+        if (isNull(position)) {
+            return 0;
+        }
+
+        int startValueOffset = getOffset(position);
+        int endValueOffset = getOffset(position + 1);
+
+        Block rawElementBlock = getRawElementBlock();
+        long size = 0;
+        for (int i = startValueOffset; i < endValueOffset; i++) {
+            size += rawElementBlock.getEstimatedDataSizeForStats(i);
+        }
+        return size;
+    }
+
+    @Override
     public boolean isNull(int position)
     {
         checkReadablePosition(position);
-        return getValueIsNull()[position + getOffsetBase()];
+        boolean[] valueIsNull = getValueIsNull();
+        return valueIsNull == null ? false : valueIsNull[position + getOffsetBase()];
     }
 
     public <T> T apply(ArrayBlockFunction<T> function, int position)

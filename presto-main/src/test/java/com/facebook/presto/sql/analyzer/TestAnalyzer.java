@@ -21,9 +21,11 @@ import com.facebook.presto.connector.informationSchema.InformationSchemaConnecto
 import com.facebook.presto.connector.system.SystemConnector;
 import com.facebook.presto.execution.QueryManagerConfig;
 import com.facebook.presto.execution.TaskManagerConfig;
+import com.facebook.presto.execution.warnings.WarningCollector;
 import com.facebook.presto.memory.MemoryManagerConfig;
 import com.facebook.presto.metadata.Catalog;
 import com.facebook.presto.metadata.CatalogManager;
+import com.facebook.presto.metadata.ColumnPropertyManager;
 import com.facebook.presto.metadata.InMemoryNodeManager;
 import com.facebook.presto.metadata.InternalNodeManager;
 import com.facebook.presto.metadata.Metadata;
@@ -92,6 +94,7 @@ import static com.facebook.presto.sql.analyzer.SemanticErrorCode.MISSING_TABLE;
 import static com.facebook.presto.sql.analyzer.SemanticErrorCode.MULTIPLE_FIELDS_FROM_SUBQUERY;
 import static com.facebook.presto.sql.analyzer.SemanticErrorCode.MUST_BE_AGGREGATE_OR_GROUP_BY;
 import static com.facebook.presto.sql.analyzer.SemanticErrorCode.MUST_BE_AGGREGATION_FUNCTION;
+import static com.facebook.presto.sql.analyzer.SemanticErrorCode.MUST_BE_COLUMN_REFERENCE;
 import static com.facebook.presto.sql.analyzer.SemanticErrorCode.NESTED_AGGREGATION;
 import static com.facebook.presto.sql.analyzer.SemanticErrorCode.NESTED_WINDOW;
 import static com.facebook.presto.sql.analyzer.SemanticErrorCode.NONDETERMINISTIC_ORDER_BY_EXPRESSION_WITH_SELECT_DISTINCT;
@@ -112,8 +115,8 @@ import static com.facebook.presto.sql.analyzer.SemanticErrorCode.VIEW_IS_STALE;
 import static com.facebook.presto.sql.analyzer.SemanticErrorCode.WILDCARD_WITHOUT_FROM;
 import static com.facebook.presto.sql.analyzer.SemanticErrorCode.WINDOW_REQUIRES_OVER;
 import static com.facebook.presto.testing.TestingSession.testSessionBuilder;
+import static com.facebook.presto.transaction.InMemoryTransactionManager.createTestTransactionManager;
 import static com.facebook.presto.transaction.TransactionBuilder.transaction;
-import static com.facebook.presto.transaction.TransactionManager.createTestTransactionManager;
 import static java.lang.String.format;
 import static java.util.Collections.emptyList;
 import static org.testng.Assert.fail;
@@ -932,6 +935,36 @@ public class TestAnalyzer
     }
 
     @Test
+    public void testComplexExpressionInGroupingSet()
+    {
+        assertFails(
+                MUST_BE_COLUMN_REFERENCE,
+                "\\Qline 1:49: GROUP BY expression must be a column reference: (x + 1)\\E",
+                "SELECT 1 FROM (VALUES 1) t(x) GROUP BY ROLLUP(x + 1)");
+        assertFails(
+                MUST_BE_COLUMN_REFERENCE,
+                "\\Qline 1:47: GROUP BY expression must be a column reference: (x + 1)\\E",
+                "SELECT 1 FROM (VALUES 1) t(x) GROUP BY CUBE(x + 1)");
+        assertFails(
+                MUST_BE_COLUMN_REFERENCE,
+                "\\Qline 1:57: GROUP BY expression must be a column reference: (x + 1)\\E",
+                "SELECT 1 FROM (VALUES 1) t(x) GROUP BY GROUPING SETS (x + 1)");
+
+        assertFails(
+                MUST_BE_COLUMN_REFERENCE,
+                "\\Qline 1:52: GROUP BY expression must be a column reference: (x + 1)\\E",
+                "SELECT 1 FROM (VALUES 1) t(x) GROUP BY ROLLUP(x, x + 1)");
+        assertFails(
+                MUST_BE_COLUMN_REFERENCE,
+                "\\Qline 1:50: GROUP BY expression must be a column reference: (x + 1)\\E",
+                "SELECT 1 FROM (VALUES 1) t(x) GROUP BY CUBE(x, x + 1)");
+        assertFails(
+                MUST_BE_COLUMN_REFERENCE,
+                "\\Qline 1:60: GROUP BY expression must be a column reference: (x + 1)\\E",
+                "SELECT 1 FROM (VALUES 1) t(x) GROUP BY GROUPING SETS (x, x + 1)");
+    }
+
+    @Test
     public void testSingleGroupingSet()
     {
         // TODO: validate output
@@ -1462,6 +1495,7 @@ public class TestAnalyzer
                 new SessionPropertyManager(),
                 new SchemaPropertyManager(),
                 new TablePropertyManager(),
+                new ColumnPropertyManager(),
                 transactionManager);
 
         metadata.getFunctionRegistry().addFunctions(ImmutableList.of(APPLY_FUNCTION));
@@ -1596,7 +1630,8 @@ public class TestAnalyzer
                 SQL_PARSER,
                 new AllowAllAccessControl(),
                 Optional.empty(),
-                emptyList());
+                emptyList(),
+                WarningCollector.NOOP);
     }
 
     private void analyze(@Language("SQL") String query)

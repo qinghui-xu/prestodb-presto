@@ -16,6 +16,7 @@ package com.facebook.presto.execution;
 import com.facebook.presto.Session;
 import com.facebook.presto.client.FailureInfo;
 import com.facebook.presto.connector.ConnectorId;
+import com.facebook.presto.execution.warnings.WarningCollector;
 import com.facebook.presto.memory.VersionedMemoryPoolId;
 import com.facebook.presto.metadata.Metadata;
 import com.facebook.presto.metadata.MetadataManager;
@@ -55,7 +56,7 @@ import static com.facebook.presto.execution.QueryState.WAITING_FOR_RESOURCES;
 import static com.facebook.presto.spi.StandardErrorCode.GENERIC_INTERNAL_ERROR;
 import static com.facebook.presto.spi.StandardErrorCode.USER_CANCELED;
 import static com.facebook.presto.spi.type.BigintType.BIGINT;
-import static com.facebook.presto.transaction.TransactionManager.createTestTransactionManager;
+import static com.facebook.presto.transaction.InMemoryTransactionManager.createTestTransactionManager;
 import static io.airlift.concurrent.MoreFutures.tryGetFutureValue;
 import static java.util.concurrent.Executors.newCachedThreadPool;
 import static org.testng.Assert.assertEquals;
@@ -440,7 +441,7 @@ public class TestQueryStateMachine
         assertEquals(stateMachine.isDone(), expectedState.isDone());
 
         if (expectedState == FAILED) {
-            FailureInfo failure = queryInfo.getFailureInfo();
+            FailureInfo failure = queryInfo.getFailureInfo().toFailureInfo();
             assertNotNull(failure);
             assertEquals(failure.getType(), expectedException.getClass().getName());
             if (expectedException instanceof PrestoException) {
@@ -465,7 +466,7 @@ public class TestQueryStateMachine
         Metadata metadata = MetadataManager.createTestMetadataManager();
         TransactionManager transactionManager = createTestTransactionManager();
         AccessControl accessControl = new AccessControlManager(transactionManager);
-        QueryStateMachine stateMachine = QueryStateMachine.beginWithTicker(QUERY_ID, QUERY, TEST_SESSION, LOCATION, false, transactionManager, accessControl, executor, ticker, metadata);
+        QueryStateMachine stateMachine = QueryStateMachine.beginWithTicker(QUERY_ID, QUERY, TEST_SESSION, LOCATION, false, transactionManager, accessControl, executor, ticker, metadata, WarningCollector.NOOP);
         stateMachine.setInputs(INPUTS);
         stateMachine.setOutput(OUTPUT);
         stateMachine.setColumns(OUTPUT_FIELD_NAMES, OUTPUT_FIELD_TYPES);

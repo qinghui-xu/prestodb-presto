@@ -26,15 +26,19 @@ import io.airlift.units.DataSize;
 import io.airlift.units.Duration;
 import org.joda.time.DateTime;
 
+import javax.annotation.Nullable;
+
 import java.util.List;
 import java.util.OptionalDouble;
 import java.util.Set;
 
 import static com.google.common.base.Preconditions.checkArgument;
+import static io.airlift.units.DataSize.Unit.BYTE;
 import static io.airlift.units.DataSize.succinctBytes;
 import static io.airlift.units.Duration.succinctNanos;
 import static java.lang.Math.min;
 import static java.util.Objects.requireNonNull;
+import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.NANOSECONDS;
 
 public class QueryStats
@@ -73,7 +77,6 @@ public class QueryStats
     private final boolean scheduled;
     private final Duration totalScheduledTime;
     private final Duration totalCpuTime;
-    private final Duration totalUserTime;
     private final Duration totalBlockedTime;
     private final boolean fullyBlocked;
     private final Set<BlockedReason> blockedReasons;
@@ -124,7 +127,6 @@ public class QueryStats
         this.scheduled = false;
         this.totalScheduledTime = null;
         this.totalCpuTime = null;
-        this.totalUserTime = null;
         this.totalBlockedTime = null;
         this.fullyBlocked = false;
         this.blockedReasons = ImmutableSet.of();
@@ -174,7 +176,6 @@ public class QueryStats
             @JsonProperty("scheduled") boolean scheduled,
             @JsonProperty("totalScheduledTime") Duration totalScheduledTime,
             @JsonProperty("totalCpuTime") Duration totalCpuTime,
-            @JsonProperty("totalUserTime") Duration totalUserTime,
             @JsonProperty("totalBlockedTime") Duration totalBlockedTime,
             @JsonProperty("fullyBlocked") boolean fullyBlocked,
             @JsonProperty("blockedReasons") Set<BlockedReason> blockedReasons,
@@ -234,7 +235,6 @@ public class QueryStats
         this.scheduled = scheduled;
         this.totalScheduledTime = requireNonNull(totalScheduledTime, "totalScheduledTime is null");
         this.totalCpuTime = requireNonNull(totalCpuTime, "totalCpuTime is null");
-        this.totalUserTime = requireNonNull(totalUserTime, "totalUserTime is null");
         this.totalBlockedTime = requireNonNull(totalBlockedTime, "totalBlockedTime is null");
         this.fullyBlocked = fullyBlocked;
         this.blockedReasons = ImmutableSet.copyOf(requireNonNull(blockedReasons, "blockedReasons is null"));
@@ -258,6 +258,52 @@ public class QueryStats
         this.operatorSummaries = ImmutableList.copyOf(requireNonNull(operatorSummaries, "operatorSummaries is null"));
     }
 
+    public static QueryStats immediateFailureQueryStats()
+    {
+        DateTime now = DateTime.now();
+        return new QueryStats(
+                now,
+                now,
+                now,
+                now,
+                new Duration(0, MILLISECONDS),
+                new Duration(0, MILLISECONDS),
+                new Duration(0, MILLISECONDS),
+                null,
+                null,
+                new Duration(0, MILLISECONDS),
+                new Duration(0, MILLISECONDS),
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                new DataSize(0, BYTE),
+                new DataSize(0, BYTE),
+                new DataSize(0, BYTE),
+                new DataSize(0, BYTE),
+                new DataSize(0, BYTE),
+                false,
+                new Duration(0, MILLISECONDS),
+                new Duration(0, MILLISECONDS),
+                new Duration(0, MILLISECONDS),
+                false,
+                ImmutableSet.of(),
+                new DataSize(0, BYTE),
+                0,
+                new DataSize(0, BYTE),
+                0,
+                new DataSize(0, BYTE),
+                0,
+                new DataSize(0, BYTE),
+                ImmutableList.of(),
+                ImmutableList.of());
+    }
+
     @JsonProperty
     public DateTime getCreateTime()
     {
@@ -276,6 +322,7 @@ public class QueryStats
         return lastHeartbeat;
     }
 
+    @Nullable
     @JsonProperty
     public DateTime getEndTime()
     {
@@ -442,12 +489,6 @@ public class QueryStats
     }
 
     @JsonProperty
-    public Duration getTotalUserTime()
-    {
-        return totalUserTime;
-    }
-
-    @JsonProperty
     public Duration getTotalBlockedTime()
     {
         return totalBlockedTime;
@@ -512,7 +553,7 @@ public class QueryStats
     {
         return operatorSummaries.stream()
                 .filter(stats -> stats.getOperatorType().equals(TableWriterOperator.class.getSimpleName()))
-                .mapToLong(stats -> stats.getInputPositions())
+                .mapToLong(OperatorStats::getInputPositions)
                 .sum();
     }
 

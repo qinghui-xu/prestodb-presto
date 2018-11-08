@@ -75,6 +75,11 @@ public class Patterns
         return typeOf(JoinNode.class);
     }
 
+    public static Pattern<SpatialJoinNode> spatialJoin()
+    {
+        return typeOf(SpatialJoinNode.class);
+    }
+
     public static Pattern<LateralJoinNode> lateralJoin()
     {
         return typeOf(LateralJoinNode.class);
@@ -164,7 +169,7 @@ public class Patterns
 
     public static class Aggregation
     {
-        public static Property<AggregationNode, List<Symbol>> groupingKeys()
+        public static Property<AggregationNode, List<Symbol>> groupingColumns()
         {
             return property("groupingKeys", AggregationNode::getGroupingKeys);
         }

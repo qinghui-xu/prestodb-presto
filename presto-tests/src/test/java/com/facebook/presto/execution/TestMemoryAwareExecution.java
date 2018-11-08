@@ -16,6 +16,7 @@ package com.facebook.presto.execution;
 import com.facebook.presto.memory.ClusterMemoryManager;
 import com.facebook.presto.memory.LocalMemoryManager;
 import com.facebook.presto.memory.MemoryManagerConfig;
+import com.facebook.presto.server.BasicQueryInfo;
 import com.facebook.presto.server.testing.TestingPrestoServer;
 import com.facebook.presto.spi.QueryId;
 import com.facebook.presto.spi.session.ResourceEstimates;
@@ -68,14 +69,14 @@ public class TestMemoryAwareExecution
         while (clusterMemoryManager.getClusterMemoryBytes() == 0) {
             Thread.sleep(1000);
         }
-        totalAvailableMemory = localMemoryManager.getPool(LocalMemoryManager.GENERAL_POOL).getMaxBytes();
+        totalAvailableMemory = localMemoryManager.getGeneralPool().getMaxBytes();
     }
 
     @AfterMethod(alwaysRun = true)
     private void afterMethod()
             throws Exception
     {
-        for (QueryInfo info : queryManager.getAllQueryInfo()) {
+        for (BasicQueryInfo info : queryManager.getQueries()) {
             if (!info.getState().isDone()) {
                 queryManager.cancelQuery(info.getQueryId());
                 waitForState(info.getQueryId(), FAILED);
@@ -120,8 +121,7 @@ public class TestMemoryAwareExecution
             throws Exception
     {
         // Invoke multiple times to make sure that pre-allocation state resets properly and that there aren't weird data races
-        // TODO: Remove subtraction of 156 * invocationCount * 2 when memory leak in PartitionedOutputBuffer is fixed
-        ResourceEstimates estimate = new ResourceEstimates(Optional.empty(), Optional.empty(), Optional.of(succinctBytes(totalAvailableMemory - (156 * 5 * 2))));
+        ResourceEstimates estimate = new ResourceEstimates(Optional.empty(), Optional.empty(), Optional.of(succinctBytes(totalAvailableMemory)));
 
         QueryId highMemoryQuery1 = queryWithResourceEstimate(estimate, queryManager);
         assertState(highMemoryQuery1, RUNNING);
@@ -156,7 +156,7 @@ public class TestMemoryAwareExecution
     {
         QueryState actualState;
         do {
-            actualState = queryManager.getQueryInfo(queryId).getState();
+            actualState = queryManager.getQueryState(queryId);
             if (actualState.isDone() || actualState == state) {
                 return actualState;
             }

@@ -14,11 +14,13 @@
 package com.facebook.presto.sql.planner.optimizations;
 
 import com.facebook.presto.Session;
+import com.facebook.presto.execution.warnings.WarningCollector;
 import com.facebook.presto.metadata.Metadata;
 import com.facebook.presto.metadata.TableHandle;
-import com.facebook.presto.metadata.TableLayoutHandle;
 import com.facebook.presto.metadata.TableLayoutResult;
+import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.Constraint;
+import com.facebook.presto.spi.predicate.TupleDomain;
 import com.facebook.presto.sql.planner.PlanNodeIdAllocator;
 import com.facebook.presto.sql.planner.SymbolAllocator;
 import com.facebook.presto.sql.planner.TypeProvider;
@@ -42,6 +44,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
+import static com.facebook.presto.metadata.TableLayoutResult.computeEnforced;
 import static com.facebook.presto.sql.planner.optimizations.QueryCardinalityUtil.isAtMostScalar;
 import static com.facebook.presto.sql.planner.plan.ChildReplacer.replaceChildren;
 import static com.google.common.base.Preconditions.checkState;
@@ -66,7 +69,7 @@ public class BeginTableWrite
     }
 
     @Override
-    public PlanNode optimize(PlanNode plan, Session session, TypeProvider types, SymbolAllocator symbolAllocator, PlanNodeIdAllocator idAllocator)
+    public PlanNode optimize(PlanNode plan, Session session, TypeProvider types, SymbolAllocator symbolAllocator, PlanNodeIdAllocator idAllocator, WarningCollector warningCollector)
     {
         return SimplePlanRewriter.rewriteWith(new Rewriter(session), plan, new Context());
     }
@@ -92,10 +95,13 @@ public class BeginTableWrite
                     node.getId(),
                     node.getSource().accept(this, context),
                     writerTarget,
+                    node.getRowCountSymbol(),
+                    node.getFragmentSymbol(),
                     node.getColumns(),
                     node.getColumnNames(),
-                    node.getOutputSymbols(),
-                    node.getPartitioningScheme());
+                    node.getPartitioningScheme(),
+                    node.getStatisticsAggregation(),
+                    node.getStatisticsAggregationDescriptor());
         }
 
         @Override
@@ -121,7 +127,13 @@ public class BeginTableWrite
             context.get().addMaterializedHandle(originalTarget, newTarget);
             child = child.accept(this, context);
 
-            return new TableFinishNode(node.getId(), child, newTarget, node.getOutputSymbols());
+            return new TableFinishNode(
+                    node.getId(),
+                    child,
+                    newTarget,
+                    node.getRowCountSymbol(),
+                    node.getStatisticsAggregation(),
+                    node.getStatisticsAggregationDescriptor());
         }
 
         public TableWriterNode.WriterTarget getTarget(PlanNode node)
@@ -164,23 +176,24 @@ public class BeginTableWrite
         {
             if (node instanceof TableScanNode) {
                 TableScanNode scan = (TableScanNode) node;
+                TupleDomain<ColumnHandle> originalEnforcedConstraint = scan.getEnforcedConstraint();
 
                 List<TableLayoutResult> layouts = metadata.getLayouts(
                         session,
                         handle,
-                        new Constraint<>(scan.getCurrentConstraint(), bindings -> true),
+                        new Constraint<>(originalEnforcedConstraint),
                         Optional.of(ImmutableSet.copyOf(scan.getAssignments().values())));
                 verify(layouts.size() == 1, "Expected exactly one layout for delete");
-                TableLayoutHandle layout = Iterables.getOnlyElement(layouts).getLayout().getHandle();
+                TableLayoutResult layoutResult = Iterables.getOnlyElement(layouts);
 
                 return new TableScanNode(
                         scan.getId(),
                         handle,
                         scan.getOutputSymbols(),
                         scan.getAssignments(),
-                        Optional.of(layout),
-                        scan.getCurrentConstraint(),
-                        scan.getOriginalConstraint());
+                        Optional.of(layoutResult.getLayout().getHandle()),
+                        layoutResult.getLayout().getPredicate(),
+                        computeEnforced(originalEnforcedConstraint, layoutResult.getUnenforcedConstraint()));
             }
 
             if (node instanceof FilterNode) {

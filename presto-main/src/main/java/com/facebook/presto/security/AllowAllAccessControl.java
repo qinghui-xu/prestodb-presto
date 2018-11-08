@@ -21,13 +21,14 @@ import com.facebook.presto.spi.security.Privilege;
 import com.facebook.presto.transaction.TransactionId;
 
 import java.security.Principal;
+import java.util.Optional;
 import java.util.Set;
 
 public class AllowAllAccessControl
         implements AccessControl
 {
     @Override
-    public void checkCanSetUser(Principal principal, String userName)
+    public void checkCanSetUser(Optional<Principal> principal, String userName)
     {
     }
 
@@ -110,11 +111,6 @@ public class AllowAllAccessControl
     }
 
     @Override
-    public void checkCanSelectFromTable(TransactionId transactionId, Identity identity, QualifiedObjectName tableName)
-    {
-    }
-
-    @Override
     public void checkCanInsertIntoTable(TransactionId transactionId, Identity identity, QualifiedObjectName tableName)
     {
     }
@@ -131,21 +127,6 @@ public class AllowAllAccessControl
 
     @Override
     public void checkCanDropView(TransactionId transactionId, Identity identity, QualifiedObjectName viewName)
-    {
-    }
-
-    @Override
-    public void checkCanSelectFromView(TransactionId transactionId, Identity identity, QualifiedObjectName viewName)
-    {
-    }
-
-    @Override
-    public void checkCanCreateViewWithSelectFromTable(TransactionId transactionId, Identity identity, QualifiedObjectName tableName)
-    {
-    }
-
-    @Override
-    public void checkCanCreateViewWithSelectFromView(TransactionId transactionId, Identity identity, QualifiedObjectName viewName)
     {
     }
 

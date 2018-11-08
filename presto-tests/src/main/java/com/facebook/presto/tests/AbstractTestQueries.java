@@ -21,6 +21,8 @@ import com.facebook.presto.spi.session.PropertyMetadata;
 import com.facebook.presto.spi.type.Decimals;
 import com.facebook.presto.spi.type.SqlTimestampWithTimeZone;
 import com.facebook.presto.spi.type.VarcharType;
+import com.facebook.presto.sql.analyzer.FeaturesConfig.JoinDistributionType;
+import com.facebook.presto.sql.analyzer.FeaturesConfig.JoinReorderingStrategy;
 import com.facebook.presto.sql.analyzer.SemanticException;
 import com.facebook.presto.testing.MaterializedResult;
 import com.facebook.presto.testing.MaterializedRow;
@@ -51,7 +53,8 @@ import java.util.Set;
 import java.util.stream.IntStream;
 
 import static com.facebook.presto.SystemSessionProperties.DISTRIBUTED_SORT;
-import static com.facebook.presto.SystemSessionProperties.REORDER_JOINS;
+import static com.facebook.presto.SystemSessionProperties.JOIN_DISTRIBUTION_TYPE;
+import static com.facebook.presto.SystemSessionProperties.JOIN_REORDERING_STRATEGY;
 import static com.facebook.presto.connector.informationSchema.InformationSchemaMetadata.INFORMATION_SCHEMA;
 import static com.facebook.presto.operator.scalar.ApplyFunction.APPLY_FUNCTION;
 import static com.facebook.presto.operator.scalar.InvokeFunction.INVOKE_FUNCTION;
@@ -63,17 +66,15 @@ import static com.facebook.presto.spi.type.IntegerType.INTEGER;
 import static com.facebook.presto.spi.type.VarcharType.VARCHAR;
 import static com.facebook.presto.spi.type.VarcharType.createVarcharType;
 import static com.facebook.presto.sql.analyzer.SemanticErrorCode.INVALID_PARAMETER_USAGE;
-import static com.facebook.presto.sql.analyzer.SemanticErrorCode.MISSING_CATALOG;
-import static com.facebook.presto.sql.analyzer.SemanticErrorCode.MISSING_SCHEMA;
 import static com.facebook.presto.sql.analyzer.SemanticErrorCode.MUST_BE_AGGREGATE_OR_GROUP_BY;
 import static com.facebook.presto.sql.tree.ExplainType.Type.DISTRIBUTED;
+import static com.facebook.presto.sql.tree.ExplainType.Type.IO;
 import static com.facebook.presto.sql.tree.ExplainType.Type.LOGICAL;
 import static com.facebook.presto.testing.MaterializedResult.resultBuilder;
 import static com.facebook.presto.testing.TestingAccessControlManager.TestingPrivilegeType.CREATE_TABLE;
 import static com.facebook.presto.testing.TestingAccessControlManager.TestingPrivilegeType.DELETE_TABLE;
 import static com.facebook.presto.testing.TestingAccessControlManager.TestingPrivilegeType.INSERT_TABLE;
 import static com.facebook.presto.testing.TestingAccessControlManager.TestingPrivilegeType.SELECT_COLUMN;
-import static com.facebook.presto.testing.TestingAccessControlManager.TestingPrivilegeType.SELECT_TABLE;
 import static com.facebook.presto.testing.TestingAccessControlManager.privilege;
 import static com.facebook.presto.testing.TestingSession.TESTING_CATALOG;
 import static com.facebook.presto.testing.TestngUtils.toDataProvider;
@@ -110,33 +111,33 @@ public abstract class AbstractTestQueries
             .getFunctions();
 
     public static final List<PropertyMetadata<?>> TEST_SYSTEM_PROPERTIES = ImmutableList.of(
-            PropertyMetadata.stringSessionProperty(
+            PropertyMetadata.stringProperty(
                     "test_string",
                     "test string property",
                     "test default",
                     false),
-            PropertyMetadata.longSessionProperty(
+            PropertyMetadata.longProperty(
                     "test_long",
                     "test long property",
                     42L,
                     false));
     public static final List<PropertyMetadata<?>> TEST_CATALOG_PROPERTIES = ImmutableList.of(
-            PropertyMetadata.stringSessionProperty(
+            PropertyMetadata.stringProperty(
                     "connector_string",
                     "connector string property",
                     "connector default",
                     false),
-            PropertyMetadata.longSessionProperty(
+            PropertyMetadata.longProperty(
                     "connector_long",
                     "connector long property",
                     33L,
                     false),
-            PropertyMetadata.booleanSessionProperty(
+            PropertyMetadata.booleanProperty(
                     "connector_boolean",
                     "connector boolean property",
                     true,
                     false),
-            PropertyMetadata.doubleSessionProperty(
+            PropertyMetadata.doubleProperty(
                     "connector_double",
                     "connector double property",
                     99.0,
@@ -155,13 +156,6 @@ public abstract class AbstractTestQueries
     public void testParsingError()
     {
         assertQueryFails("SELECT foo FROM", "line 1:16: mismatched input '<EOF>'. Expecting: .*");
-    }
-
-    @Test
-    public void testShowPartitions()
-    {
-        assertQueryFails("SHOW PARTITIONS FROM orders", "line 1:1: SHOW PARTITIONS no longer exists. Use this instead: SELECT \\* FROM \"orders\\$partitions\"");
-        assertQueryFails("SHOW PARTITIONS FROM abc.orders", "line 1:1: SHOW PARTITIONS no longer exists. Use this instead: SELECT \\* FROM \"abc\".\"orders\\$partitions\"");
     }
 
     @Test
@@ -691,7 +685,7 @@ public abstract class AbstractTestQueries
                         "SELECT * FROM a",
                 "VALUES (1.1, 2), (sin(3.3), 2+2)");
 
-        // implicity coersions
+        // implicit coersions
         assertQuery("VALUES 1, 2.2, 3, 4.4");
         assertQuery("VALUES (1, 2), (3.3, 4.4)");
         assertQuery("VALUES true, 1.0 in (1, 2, 3)");
@@ -4442,6 +4436,14 @@ public abstract class AbstractTestQueries
     }
 
     @Test
+    public void testIOExplain()
+    {
+        String query = "SELECT * FROM orders";
+        MaterializedResult result = computeActual("EXPLAIN (TYPE IO) " + query);
+        assertEquals(getOnlyElement(result.getOnlyColumnAsSet()), getExplainPlan(query, IO));
+    }
+
+    @Test
     public void testLogicalExplainTextFormat()
     {
         String query = "SELECT * FROM orders";
@@ -4641,27 +4643,8 @@ public abstract class AbstractTestQueries
         result = computeActual("SHOW TABLES FROM " + catalog + "." + schema);
         assertTrue(result.getOnlyColumnAsSet().containsAll(expectedTables));
 
-        try {
-            computeActual("SHOW TABLES FROM UNKNOWN");
-            fail("Showing tables in an unknown schema should fail");
-        }
-        catch (SemanticException e) {
-            assertEquals(e.getCode(), MISSING_SCHEMA);
-        }
-        catch (RuntimeException e) {
-            assertEquals(e.getMessage(), "line 1:1: Schema 'unknown' does not exist");
-        }
-
-        try {
-            computeActual("SHOW TABLES FROM UNKNOWNCATALOG.UNKNOWNSCHEMA");
-            fail("Showing tables in an unknown catalog and unknown schema should fail with unknown catalog");
-        }
-        catch (SemanticException e) {
-            assertEquals(e.getCode(), MISSING_CATALOG);
-        }
-        catch (RuntimeException e) {
-            assertEquals(e.getMessage(), "line 1:1: Catalog 'unknowncatalog' does not exist");
-        }
+        assertQueryFails("SHOW TABLES FROM UNKNOWN", "line 1:1: Schema 'unknown' does not exist");
+        assertQueryFails("SHOW TABLES FROM UNKNOWNCATALOG.UNKNOWNSCHEMA", "line 1:1: Catalog 'unknowncatalog' does not exist");
     }
 
     @Test
@@ -4718,48 +4701,6 @@ public abstract class AbstractTestQueries
         // Until we migrate all connectors to parametrized varchar we check two options
         assertTrue(actual.equals(expectedParametrizedVarchar) || actual.equals(expectedUnparametrizedVarchar),
                 format("%s does not matche neither of %s and %s", actual, expectedParametrizedVarchar, expectedUnparametrizedVarchar));
-    }
-
-    @Test
-    public void testShowStatsWithoutFromFails()
-    {
-        assertQueryFails("SHOW STATS FOR (SELECT 1)", ".*There must be exactly one table in query passed to SHOW STATS SELECT clause");
-    }
-
-    @Test
-    public void testShowStatsWithMultipleFromFails()
-    {
-        assertQueryFails("SHOW STATS FOR (SELECT * FROM orders, lineitem)", ".*There must be exactly one table in query passed to SHOW STATS SELECT clause");
-    }
-
-    @Test
-    public void testShowStatsWithGroupByFails()
-    {
-        assertQueryFails("SHOW STATS FOR (SELECT avg(totalprice) FROM orders GROUP BY clerk)", ".*GROUP BY is not supported in SHOW STATS SELECT clause");
-    }
-
-    @Test
-    public void testShowStatsWithHavingFails()
-    {
-        assertQueryFails("SHOW STATS FOR (SELECT avg(orderkey) FROM orders HAVING avg(orderkey) < 5)", ".*HAVING is not supported in SHOW STATS SELECT clause");
-    }
-
-    @Test
-    public void testShowStatsWithSelectDistinctFails()
-    {
-        assertQueryFails("SHOW STATS FOR (SELECT DISTINCT * FROM orders)", ".*DISTINCT is not supported by SHOW STATS SELECT clause");
-    }
-
-    @Test
-    public void testShowStatsWithSelectFunctionCallFails()
-    {
-        assertQueryFails("SHOW STATS FOR (SELECT sin(orderkey) FROM orders)", ".*Only \\* and column references are supported by SHOW STATS SELECT clause");
-    }
-
-    @Test
-    public void testShowStatsWithWhereFunctionCallFails()
-    {
-        assertQueryFails("SHOW STATS FOR (SELECT orderkey FROM orders WHERE sin(orderkey) > 0)", ".*Only literals, column references, comparators, is \\(not\\) null and logical operators are allowed in WHERE of SHOW STATS SELECT clause");
     }
 
     @Test
@@ -4853,6 +4794,20 @@ public abstract class AbstractTestQueries
         assertQuery(
                 "SELECT table_name FROM information_schema.columns WHERE data_type = 'bigint' AND table_name = 'customer' and column_name = 'custkey' LIMIT 1",
                 "SELECT 'customer' table_name");
+    }
+
+    @Test
+    public void testInformationSchemaUppercaseName()
+    {
+        assertQuery(
+                "SELECT table_name FROM information_schema.tables WHERE table_catalog = 'LOCAL'",
+                "SELECT '' WHERE false");
+        assertQuery(
+                "SELECT table_name FROM information_schema.tables WHERE table_schema = 'TINY'",
+                "SELECT '' WHERE false");
+        assertQuery(
+                "SELECT table_name FROM information_schema.tables WHERE table_name = 'ORDERS'",
+                "SELECT '' WHERE false");
     }
 
     @Test
@@ -6074,9 +6029,8 @@ public abstract class AbstractTestQueries
 
         // group by
         assertQuery("SELECT max(n.regionkey), 2 * n.nationkey, (SELECT n.nationkey) FROM nation n GROUP BY n.nationkey");
-        assertQueryFails(
-                "SELECT max(l.quantity), 2 * l.orderkey FROM lineitem l GROUP BY l.orderkey HAVING max(l.quantity) < (SELECT l.orderkey)",
-                UNSUPPORTED_CORRELATED_SUBQUERY_ERROR_MSG);
+        assertQuery(
+                "SELECT max(l.quantity), 2 * l.orderkey FROM lineitem l GROUP BY l.orderkey HAVING max(l.quantity) < (SELECT l.orderkey)");
         assertQuery("SELECT max(l.quantity), 2 * l.orderkey FROM lineitem l GROUP BY l.orderkey, (SELECT l.orderkey)");
 
         // join
@@ -7406,7 +7360,6 @@ public abstract class AbstractTestQueries
     @Test
     public void testAccessControl()
     {
-        assertAccessDenied("SELECT COUNT(true) FROM orders", "Cannot select from table .*.orders.*", privilege("orders", SELECT_TABLE));
         assertAccessDenied("INSERT INTO orders SELECT * FROM orders", "Cannot insert into table .*.orders.*", privilege("orders", INSERT_TABLE));
         assertAccessDenied("DELETE FROM orders", "Cannot delete from table .*.orders.*", privilege("orders", DELETE_TABLE));
         assertAccessDenied("CREATE TABLE foo AS SELECT * FROM orders", "Cannot create table .*.foo.*", privilege("foo", CREATE_TABLE));
@@ -7419,6 +7372,9 @@ public abstract class AbstractTestQueries
         assertAccessDenied("SELECT 1 FROM region, nation where region.regionkey = nation.nationkey", "Cannot select from columns \\[nationkey\\] in table .*.nation.*", privilege("nationkey", SELECT_COLUMN));
         assertAccessDenied("SELECT count(*) FROM nation", "Cannot select from columns \\[\\] in table .*.nation.*", privilege("nation", SELECT_COLUMN));
         assertAccessDenied("WITH t1 AS (SELECT * FROM nation) SELECT * FROM t1", "Cannot select from columns \\[nationkey, regionkey, name, comment\\] in table .*.nation.*", privilege("nationkey", SELECT_COLUMN));
+        assertAccessAllowed("SELECT name AS my_alias FROM nation", privilege("my_alias", SELECT_COLUMN));
+        assertAccessAllowed("SELECT my_alias from (SELECT name AS my_alias FROM nation)", privilege("my_alias", SELECT_COLUMN));
+        assertAccessDenied("SELECT name AS my_alias FROM nation", "Cannot select from columns \\[name\\] in table .*.nation.*", privilege("name", SELECT_COLUMN));
     }
 
     @Test
@@ -8090,7 +8046,8 @@ public abstract class AbstractTestQueries
     protected Session noJoinReordering()
     {
         return Session.builder(getSession())
-                .setSystemProperty(REORDER_JOINS, "false")
+                .setSystemProperty(JOIN_REORDERING_STRATEGY, JoinReorderingStrategy.NONE.name())
+                .setSystemProperty(JOIN_DISTRIBUTION_TYPE, JoinDistributionType.PARTITIONED.name())
                 .build();
     }
 }

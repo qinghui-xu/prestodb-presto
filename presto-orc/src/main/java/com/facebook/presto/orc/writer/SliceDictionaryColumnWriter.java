@@ -48,6 +48,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 
 import static com.facebook.presto.orc.DictionaryCompressionOptimizer.estimateIndexBytesPerValue;
 import static com.facebook.presto.orc.OrcEncoding.DWRF;
@@ -87,8 +88,8 @@ public class SliceDictionaryColumnWriter
     private StringStatisticsBuilder statisticsBuilder;
 
     private long rawBytes;
-    private int totalValueCount;
-    private int totalNonNullValueCount;
+    private long totalValueCount;
+    private long totalNonNullValueCount;
 
     private boolean closed;
     private boolean inRowGroup;
@@ -136,14 +137,21 @@ public class SliceDictionaryColumnWriter
     }
 
     @Override
-    public int getValueCount()
+    public int getIndexBytes()
+    {
+        checkState(!directEncoded);
+        return toIntExact(estimateIndexBytesPerValue(dictionary.getEntryCount()) * getNonNullValueCount());
+    }
+
+    @Override
+    public long getValueCount()
     {
         checkState(!directEncoded);
         return totalValueCount;
     }
 
     @Override
-    public int getNonNullValueCount()
+    public long getNonNullValueCount()
     {
         checkState(!directEncoded);
         return totalNonNullValueCount;
@@ -157,13 +165,14 @@ public class SliceDictionaryColumnWriter
     }
 
     @Override
-    public long convertToDirect()
+    public OptionalInt tryConvertToDirect(int maxDirectBytes)
     {
         checkState(!closed);
         checkState(!directEncoded);
         if (directColumnWriter == null) {
             directColumnWriter = new SliceDirectColumnWriter(column, type, compression, bufferSize, orcEncoding, this::newStringStatisticsBuilder);
         }
+        checkState(directColumnWriter.getBufferedBytes() == 0);
 
         Block dictionaryValues = dictionary.getElementBlock();
         for (DictionaryRowGroup rowGroup : rowGroups) {
@@ -171,7 +180,14 @@ public class SliceDictionaryColumnWriter
             // todo we should be able to pass the stats down to avoid recalculating min and max
             writeDictionaryRowGroup(dictionaryValues, rowGroup.getValueCount(), rowGroup.getDictionaryIndexes());
             directColumnWriter.finishRowGroup();
+
+            if (directColumnWriter.getBufferedBytes() > maxDirectBytes) {
+                directColumnWriter.close();
+                directColumnWriter.reset();
+                return OptionalInt.empty();
+            }
         }
+
         if (inRowGroup) {
             directColumnWriter.beginRowGroup();
             writeDictionaryRowGroup(dictionaryValues, rowGroupValueCount, values);
@@ -182,6 +198,9 @@ public class SliceDictionaryColumnWriter
 
         rowGroups.clear();
 
+        // free the dictionary
+        dictionary.clear();
+
         rawBytes = 0;
         totalValueCount = 0;
         totalNonNullValueCount = 0;
@@ -191,7 +210,7 @@ public class SliceDictionaryColumnWriter
 
         directEncoded = true;
 
-        return directColumnWriter.getBufferedBytes();
+        return OptionalInt.of(toIntExact(directColumnWriter.getBufferedBytes()));
     }
 
     private void writeDictionaryRowGroup(Block dictionary, int valueCount, IntBigArray dictionaryIndexes)
@@ -355,6 +374,7 @@ public class SliceDictionaryColumnWriter
 
         // free the dictionary memory
         dictionary.clear();
+
         dictionaryDataStream.close();
         dictionaryLengthStream.close();
 
@@ -464,15 +484,13 @@ public class SliceDictionaryColumnWriter
             return directColumnWriter.getBufferedBytes();
         }
         // for dictionary columns we report the data we expect to write to the output stream
-        int indexBytes = estimateIndexBytesPerValue(dictionary.getEntryCount()) * getNonNullValueCount();
-        return indexBytes + getDictionaryBytes();
+        return getIndexBytes() + getDictionaryBytes();
     }
 
     @Override
     public long getRetainedBytes()
     {
-        // NOTE: we do not include stats because they should be small and it would be annoying to calculate the size
-        return INSTANCE_SIZE +
+        long retainedBytes = INSTANCE_SIZE +
                 values.sizeOf() +
                 dataStream.getRetainedBytes() +
                 presentStream.getRetainedBytes() +
@@ -480,6 +498,11 @@ public class SliceDictionaryColumnWriter
                 dictionaryLengthStream.getRetainedBytes() +
                 dictionary.getRetainedSizeInBytes() +
                 (directColumnWriter == null ? 0 : directColumnWriter.getRetainedBytes());
+
+        for (DictionaryRowGroup rowGroup : rowGroups) {
+            retainedBytes += rowGroup.getColumnStatistics().getRetainedSizeInBytes();
+        }
+        return retainedBytes;
     }
 
     @Override

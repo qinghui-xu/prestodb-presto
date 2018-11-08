@@ -47,7 +47,6 @@ import com.facebook.presto.sql.tree.ShowColumns;
 import com.facebook.presto.sql.tree.ShowCreate;
 import com.facebook.presto.sql.tree.ShowFunctions;
 import com.facebook.presto.sql.tree.ShowGrants;
-import com.facebook.presto.sql.tree.ShowPartitions;
 import com.facebook.presto.sql.tree.ShowSchemas;
 import com.facebook.presto.sql.tree.ShowSession;
 import com.facebook.presto.sql.tree.ShowStats;
@@ -60,7 +59,7 @@ import com.google.common.collect.ImmutableMap;
 import java.util.Map;
 import java.util.Optional;
 
-public class StatementUtils
+public final class StatementUtils
 {
     private StatementUtils() {}
 
@@ -81,7 +80,6 @@ public class StatementUtils
         builder.put(ShowCreate.class, QueryType.DESCRIBE);
         builder.put(ShowFunctions.class, QueryType.DESCRIBE);
         builder.put(ShowGrants.class, QueryType.DESCRIBE);
-        builder.put(ShowPartitions.class, QueryType.DESCRIBE);
         builder.put(ShowSchemas.class, QueryType.DESCRIBE);
         builder.put(ShowSession.class, QueryType.DESCRIBE);
         builder.put(ShowStats.class, QueryType.DESCRIBE);
@@ -124,5 +122,10 @@ public class StatementUtils
     public static Optional<QueryType> getQueryType(Class<? extends Statement> statement)
     {
         return Optional.ofNullable(STATEMENT_QUERY_TYPES.get(statement));
+    }
+
+    public static boolean isTransactionControlStatement(Statement statement)
+    {
+        return statement instanceof StartTransaction || statement instanceof Commit || statement instanceof Rollback;
     }
 }

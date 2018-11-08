@@ -56,7 +56,7 @@ public class HashBuilderOperator
     {
         private final int operatorId;
         private final PlanNodeId planNodeId;
-        private final JoinBridgeDataManager<LookupSourceFactory> lookupSourceFactoryManager;
+        private final JoinBridgeManager<LookupSourceFactory> lookupSourceFactoryManager;
         private final List<Integer> outputChannels;
         private final List<Integer> hashChannels;
         private final OptionalInt preComputedHashChannel;
@@ -76,7 +76,7 @@ public class HashBuilderOperator
         public HashBuilderOperatorFactory(
                 int operatorId,
                 PlanNodeId planNodeId,
-                JoinBridgeDataManager<LookupSourceFactory> lookupSourceFactory,
+                JoinBridgeManager<LookupSourceFactory> lookupSourceFactory,
                 List<Integer> outputChannels,
                 List<Integer> hashChannels,
                 OptionalInt preComputedHashChannel,
@@ -114,7 +114,7 @@ public class HashBuilderOperator
             checkState(!closed, "Factory is already closed");
             OperatorContext operatorContext = driverContext.addOperatorContext(operatorId, planNodeId, HashBuilderOperator.class.getSimpleName());
 
-            LookupSourceFactory lookupSourceFactory = this.lookupSourceFactoryManager.forLifespan(driverContext.getLifespan());
+            LookupSourceFactory lookupSourceFactory = this.lookupSourceFactoryManager.getJoinBridge(driverContext.getLifespan());
             int partitionIndex = getAndIncrementPartitionIndex(driverContext.getLifespan());
             verify(partitionIndex < lookupSourceFactory.partitions());
             return new HashBuilderOperator(
@@ -215,7 +215,7 @@ public class HashBuilderOperator
 
     private State state = State.CONSUMING_INPUT;
     private Optional<ListenableFuture<?>> lookupSourceNotNeeded = Optional.empty();
-    private SpilledLookupSourceHandle spilledLookupSourceHandle = new SpilledLookupSourceHandle();
+    private final SpilledLookupSourceHandle spilledLookupSourceHandle = new SpilledLookupSourceHandle();
     private Optional<SingleStreamSpiller> spiller = Optional.empty();
     private ListenableFuture<?> spillInProgress = NOT_BLOCKED;
     private Optional<ListenableFuture<List<Page>>> unspillInProgress = Optional.empty();
@@ -407,7 +407,7 @@ public class HashBuilderOperator
         spiller = Optional.of(singleStreamSpillerFactory.create(
                 index.getTypes(),
                 operatorContext.getSpillContext().newLocalSpillContext(),
-                operatorContext.newLocalSystemMemoryContext()));
+                operatorContext.newLocalSystemMemoryContext(HashBuilderOperator.class.getSimpleName())));
         return getSpiller().spill(index.getPages());
     }
 

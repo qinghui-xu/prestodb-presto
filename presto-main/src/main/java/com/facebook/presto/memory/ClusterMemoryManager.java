@@ -16,8 +16,10 @@ package com.facebook.presto.memory;
 import com.facebook.presto.execution.LocationFactory;
 import com.facebook.presto.execution.QueryExecution;
 import com.facebook.presto.execution.QueryIdGenerator;
+import com.facebook.presto.execution.scheduler.NodeSchedulerConfig;
 import com.facebook.presto.memory.LowMemoryKiller.QueryMemoryInfo;
 import com.facebook.presto.metadata.InternalNodeManager;
+import com.facebook.presto.server.BasicQueryInfo;
 import com.facebook.presto.server.ServerConfig;
 import com.facebook.presto.spi.Node;
 import com.facebook.presto.spi.PrestoException;
@@ -31,6 +33,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Streams;
+import com.google.common.io.Closer;
 import io.airlift.http.client.HttpClient;
 import io.airlift.json.JsonCodec;
 import io.airlift.log.Logger;
@@ -39,14 +42,15 @@ import io.airlift.units.Duration;
 import org.weakref.jmx.JmxException;
 import org.weakref.jmx.MBeanExporter;
 import org.weakref.jmx.Managed;
-import org.weakref.jmx.ObjectNames;
 
 import javax.annotation.PreDestroy;
 import javax.annotation.concurrent.GuardedBy;
 import javax.inject.Inject;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -56,6 +60,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 import static com.facebook.presto.ExceededMemoryLimitException.exceededGlobalTotalLimit;
 import static com.facebook.presto.ExceededMemoryLimitException.exceededGlobalUserLimit;
@@ -69,7 +74,7 @@ import static com.facebook.presto.memory.LocalMemoryManager.SYSTEM_POOL;
 import static com.facebook.presto.spi.NodeState.ACTIVE;
 import static com.facebook.presto.spi.NodeState.SHUTTING_DOWN;
 import static com.facebook.presto.spi.StandardErrorCode.CLUSTER_OUT_OF_MEMORY;
-import static com.facebook.presto.spi.StandardErrorCode.EXCEEDED_MEMORY_LIMIT;
+import static com.facebook.presto.spi.StandardErrorCode.EXCEEDED_GLOBAL_MEMORY_LIMIT;
 import static com.google.common.base.Verify.verify;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
@@ -80,15 +85,15 @@ import static io.airlift.units.Duration.nanosSince;
 import static java.lang.Math.min;
 import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
+import static org.weakref.jmx.ObjectNames.generatedNameOf;
 
 public class ClusterMemoryManager
         implements ClusterMemoryPoolManager
 {
-    private static final Set<MemoryPoolId> POOLS = ImmutableSet.of(GENERAL_POOL, RESERVED_POOL, SYSTEM_POOL);
-
     private static final Logger log = Logger.get(ClusterMemoryManager.class);
 
     private final ExecutorService listenerExecutor = Executors.newSingleThreadExecutor();
+    private final ClusterMemoryLeakDetector memoryLeakDetector = new ClusterMemoryLeakDetector();
     private final InternalNodeManager nodeManager;
     private final LocationFactory locationFactory;
     private final HttpClient httpClient;
@@ -106,6 +111,7 @@ public class ClusterMemoryManager
     private final AtomicLong clusterTotalMemoryReservation = new AtomicLong();
     private final AtomicLong clusterMemoryBytes = new AtomicLong();
     private final AtomicLong queriesKilledDueToOutOfMemory = new AtomicLong();
+    private final boolean isWorkScheduledOnCoordinator;
 
     private final Map<QueryId, Long> preAllocations = new HashMap<>();
     private final Map<QueryId, Long> preAllocationsConsumed = new HashMap<>();
@@ -140,11 +146,13 @@ public class ClusterMemoryManager
             LowMemoryKiller lowMemoryKiller,
             ServerConfig serverConfig,
             MemoryManagerConfig config,
-            NodeMemoryConfig nodeMemoryConfig)
+            NodeMemoryConfig nodeMemoryConfig,
+            NodeSchedulerConfig schedulerConfig)
     {
         requireNonNull(config, "config is null");
         requireNonNull(nodeMemoryConfig, "nodeMemoryConfig is null");
         requireNonNull(serverConfig, "serverConfig is null");
+        requireNonNull(schedulerConfig, "schedulerConfig is null");
         this.nodeManager = requireNonNull(nodeManager, "nodeManager is null");
         this.locationFactory = requireNonNull(locationFactory, "locationFactory is null");
         this.httpClient = requireNonNull(httpClient, "httpClient is null");
@@ -158,36 +166,60 @@ public class ClusterMemoryManager
         this.enabled = serverConfig.isCoordinator();
         this.killOnOutOfMemoryDelay = config.getKillOnOutOfMemoryDelay();
         this.isLegacySystemPoolEnabled = nodeMemoryConfig.isLegacySystemPoolEnabled();
+        this.isWorkScheduledOnCoordinator = schedulerConfig.isIncludeCoordinator();
 
         verify(maxQueryMemory.toBytes() <= maxQueryTotalMemory.toBytes(),
                 "maxQueryMemory cannot be greater than maxQueryTotalMemory");
 
+        this.pools = createClusterMemoryPools(nodeMemoryConfig.isLegacySystemPoolEnabled(), nodeMemoryConfig.isReservedPoolEnabled());
+    }
+
+    private Map<MemoryPoolId, ClusterMemoryPool> createClusterMemoryPools(boolean systemPoolEnabled, boolean reservedPoolEnabled)
+    {
+        Set<MemoryPoolId> memoryPools = new HashSet<>();
+        memoryPools.add(GENERAL_POOL);
+        if (systemPoolEnabled) {
+            memoryPools.add(SYSTEM_POOL);
+        }
+        if (reservedPoolEnabled) {
+            memoryPools.add(RESERVED_POOL);
+        }
+
         ImmutableMap.Builder<MemoryPoolId, ClusterMemoryPool> builder = ImmutableMap.builder();
-        for (MemoryPoolId poolId : POOLS) {
+        for (MemoryPoolId poolId : memoryPools) {
             ClusterMemoryPool pool = new ClusterMemoryPool(poolId);
             builder.put(poolId, pool);
-            String objectName = ObjectNames.builder(ClusterMemoryPool.class, poolId.toString()).build();
             try {
-                exporter.export(objectName, pool);
+                exporter.export(generatedNameOf(ClusterMemoryPool.class, poolId.toString()), pool);
             }
             catch (JmxException e) {
                 log.error(e, "Error exporting memory pool %s", poolId);
             }
         }
-        this.pools = builder.build();
+        return builder.build();
     }
 
     @Override
     public synchronized void addChangeListener(MemoryPoolId poolId, Consumer<MemoryPoolInfo> listener)
     {
+        verify(memoryPoolExists(poolId), "Memory pool does not exist: %s", poolId);
         changeListeners.computeIfAbsent(poolId, id -> new ArrayList<>()).add(listener);
     }
 
-    public synchronized void process(Iterable<QueryExecution> queries)
+    public synchronized boolean memoryPoolExists(MemoryPoolId poolId)
+    {
+        return pools.containsKey(poolId);
+    }
+
+    public synchronized void process(Iterable<QueryExecution> runningQueries, Supplier<List<BasicQueryInfo>> allQueryInfoSupplier)
     {
         if (!enabled) {
             return;
         }
+
+        // TODO revocable memory reservations can also leak and may need to be detected in the future
+        // We are only concerned about the leaks in general pool.
+        memoryLeakDetector.checkForMemoryLeaks(allQueryInfoSupplier, pools.get(GENERAL_POOL).getQueryMemoryReservations());
 
         boolean outOfMemory = isClusterOutOfMemory();
         if (!outOfMemory) {
@@ -199,10 +231,10 @@ public class ClusterMemoryManager
         boolean queryKilled = false;
         long totalUserMemoryBytes = 0L;
         long totalMemoryBytes = 0L;
-        for (QueryExecution query : queries) {
+        for (QueryExecution query : runningQueries) {
             boolean resourceOvercommit = resourceOvercommit(query.getSession());
-            long userMemoryReservation = query.getUserMemoryReservation();
-            long totalMemoryReservation = query.getTotalMemoryReservation();
+            long userMemoryReservation = query.getUserMemoryReservation().toBytes();
+            long totalMemoryReservation = query.getTotalMemoryReservation().toBytes();
 
             if (resourceOvercommit && outOfMemory) {
                 // If a query has requested resource overcommit, only kill it if the cluster has run out of memory
@@ -242,9 +274,8 @@ public class ClusterMemoryManager
                 outOfMemory &&
                 !queryKilled &&
                 nanosSince(lastTimeNotOutOfMemory).compareTo(killOnOutOfMemoryDelay) > 0) {
-            boolean lastKilledQueryGone = isLastKilledQueryGone();
-            if (lastKilledQueryGone) {
-                callOomKiller(queries);
+            if (isLastKilledQueryGone()) {
+                callOomKiller(runningQueries);
             }
             else {
                 log.debug("Last killed query is still not gone: %s", lastKilledQuery);
@@ -252,19 +283,30 @@ public class ClusterMemoryManager
         }
 
         Map<MemoryPoolId, Integer> countByPool = new HashMap<>();
-        for (QueryExecution query : queries) {
+        for (QueryExecution query : runningQueries) {
             MemoryPoolId id = query.getMemoryPool().getId();
             countByPool.put(id, countByPool.getOrDefault(id, 0) + 1);
         }
 
         updatePools(countByPool);
 
-        updateNodes(updateAssignments(queries));
+        MemoryPoolAssignmentsRequest assignmentsRequest;
+        if (pools.containsKey(RESERVED_POOL)) {
+            assignmentsRequest = updateAssignments(runningQueries);
+        }
+        else {
+            // If reserved pool is not enabled, we don't create a MemoryPoolAssignmentsRequest that puts all the queries
+            // in the general pool (as they already are). In this case we create an effectively NOOP MemoryPoolAssignmentsRequest.
+            // Once the reserved pool is removed we should get rid of the logic of putting queries into reserved pool including
+            // this piece of code.
+            assignmentsRequest = new MemoryPoolAssignmentsRequest(coordinatorId, Long.MIN_VALUE, ImmutableList.of());
+        }
+        updateNodes(assignmentsRequest);
     }
 
-    private synchronized void callOomKiller(Iterable<QueryExecution> queries)
+    private synchronized void callOomKiller(Iterable<QueryExecution> runningQueries)
     {
-        List<QueryMemoryInfo> queryMemoryInfoList = Streams.stream(queries)
+        List<QueryMemoryInfo> queryMemoryInfoList = Streams.stream(runningQueries)
                 .map(this::createQueryMemoryInfo)
                 .collect(toImmutableList());
         List<MemoryInfo> nodeMemoryInfos = nodes.values().stream()
@@ -275,7 +317,7 @@ public class ClusterMemoryManager
         Optional<QueryId> chosenQueryId = lowMemoryKiller.chooseQueryToKill(queryMemoryInfoList, nodeMemoryInfos);
         if (chosenQueryId.isPresent()) {
             log.debug("Low memory killer chose %s", chosenQueryId.get());
-            Optional<QueryExecution> chosenQuery = Streams.stream(queries).filter(query -> chosenQueryId.get().equals(query.getQueryId())).collect(toOptional());
+            Optional<QueryExecution> chosenQuery = Streams.stream(runningQueries).filter(query -> chosenQueryId.get().equals(query.getQueryId())).collect(toOptional());
             if (chosenQuery.isPresent()) {
                 // See comments in  isLastKilledQueryGone for why chosenQuery might be absent.
                 chosenQuery.get().fail(new PrestoException(CLUSTER_OUT_OF_MEMORY, "Query killed because the cluster is out of memory. Please try again in a few minutes."));
@@ -292,6 +334,16 @@ public class ClusterMemoryManager
         if (lastKilledQuery == null) {
             return true;
         }
+
+        // If the lastKilledQuery is marked as leaked by the ClusterMemoryLeakDetector we consider the lastKilledQuery as gone,
+        // so that the ClusterMemoryManager can continue to make progress even if there are leaks.
+        // Even if the weak references to the leaked queries are GCed in the ClusterMemoryLeakDetector, it will mark the same queries
+        // as leaked in its next run, and eventually the ClusterMemoryManager will make progress.
+        if (memoryLeakDetector.wasQueryPossiblyLeaked(lastKilledQuery)) {
+            lastKilledQuery = null;
+            return true;
+        }
+
         // pools fields is updated based on nodes field.
         // Therefore, if the query is gone from pools field, it should also be gone from nodes field.
         // However, since nodes can updated asynchronously, it has the potential of coming back after being gone.
@@ -326,12 +378,12 @@ public class ClusterMemoryManager
     public synchronized boolean preAllocateQueryMemory(QueryId queryId, long requiredBytes)
     {
         if (requiredBytes > maxQueryMemory.toBytes()) {
-            throw new PrestoException(EXCEEDED_MEMORY_LIMIT, format("Cannot pre-allocate memory, exceeds maximum limit %s", maxQueryMemory));
+            throw new PrestoException(EXCEEDED_GLOBAL_MEMORY_LIMIT, format("Cannot pre-allocate user memory, exceeds maximum limit %s", maxQueryMemory));
         }
 
         ClusterMemoryPool generalPool = pools.get(GENERAL_POOL);
         ClusterMemoryPool reservedPool = pools.get(RESERVED_POOL);
-        if (generalPool.getBlockedNodes() > 0 || reservedPool.getAssignedQueries() > 0) {
+        if (generalPool.getBlockedNodes() > 0 || (reservedPool != null && reservedPool.getAssignedQueries() > 0)) {
             return false;
         }
 
@@ -366,21 +418,35 @@ public class ClusterMemoryManager
         return ImmutableMap.copyOf(pools);
     }
 
+    public synchronized Map<MemoryPoolId, MemoryPoolInfo> getMemoryPoolInfo()
+    {
+        ImmutableMap.Builder<MemoryPoolId, MemoryPoolInfo> builder = new ImmutableMap.Builder<>();
+        pools.forEach((poolId, memoryPool) -> builder.put(poolId, memoryPool.getInfo()));
+        return builder.build();
+    }
+
     private synchronized boolean isClusterOutOfMemory()
     {
         ClusterMemoryPool reservedPool = pools.get(RESERVED_POOL);
         ClusterMemoryPool generalPool = pools.get(GENERAL_POOL);
-        return reservedPool != null && generalPool != null && reservedPool.getAssignedQueries() > 0 && generalPool.getBlockedNodes() > 0;
+        if (reservedPool == null) {
+            return generalPool.getBlockedNodes() > 0;
+        }
+        return reservedPool.getAssignedQueries() > 0 && generalPool.getBlockedNodes() > 0;
     }
 
+    // TODO once the reserved pool is removed we can remove this method. We can also update
+    // RemoteNodeMemory as we don't need to POST anything.
     private synchronized MemoryPoolAssignmentsRequest updateAssignments(Iterable<QueryExecution> queries)
     {
         ClusterMemoryPool reservedPool = pools.get(RESERVED_POOL);
         ClusterMemoryPool generalPool = pools.get(GENERAL_POOL);
+        verify(generalPool != null, "generalPool is null");
+        verify(reservedPool != null, "reservedPool is null");
         long version = memoryPoolAssignmentsVersion.incrementAndGet();
         // Check that all previous assignments have propagated to the visible nodes. This doesn't account for temporary network issues,
         // and is more of a safety check than a guarantee
-        if (reservedPool != null && generalPool != null && allAssignmentsHavePropagated(queries)) {
+        if (allAssignmentsHavePropagated(queries)) {
             if (reservedPool.getAssignedQueries() == 0 && generalPool.getBlockedNodes() > 0) {
                 QueryExecution biggestQuery = null;
                 long maxMemory = -1;
@@ -414,18 +480,18 @@ public class ClusterMemoryManager
     {
         // when the legacy system pool is enabled we use the user memory instead of the total memory
         if (isLegacySystemPoolEnabled) {
-            return new QueryMemoryInfo(query.getQueryId(), query.getMemoryPool().getId(), query.getUserMemoryReservation());
+            return new QueryMemoryInfo(query.getQueryId(), query.getMemoryPool().getId(), query.getUserMemoryReservation().toBytes());
         }
-        return new QueryMemoryInfo(query.getQueryId(), query.getMemoryPool().getId(), query.getTotalMemoryReservation());
+        return new QueryMemoryInfo(query.getQueryId(), query.getMemoryPool().getId(), query.getTotalMemoryReservation().toBytes());
     }
 
     private long getQueryMemoryReservation(QueryExecution query)
     {
         // when the legacy system pool is enabled we use the user memory instead of the total memory
         if (isLegacySystemPoolEnabled) {
-            return query.getUserMemoryReservation();
+            return query.getUserMemoryReservation().toBytes();
         }
-        return query.getTotalMemoryReservation();
+        return query.getTotalMemoryReservation().toBytes();
     }
 
     private synchronized boolean allAssignmentsHavePropagated(Iterable<QueryExecution> queries)
@@ -470,6 +536,12 @@ public class ClusterMemoryManager
             if (!nodes.containsKey(node.getNodeIdentifier())) {
                 nodes.put(node.getNodeIdentifier(), new RemoteNodeMemory(node, httpClient, memoryInfoCodec, assignmentsRequestJsonCodec, locationFactory.createMemoryInfoLocation(node)));
             }
+        }
+
+        // If work isn't scheduled on the coordinator (the current node) there is no point
+        // in polling or updating (when moving queries to the reserved pool) its memory pools
+        if (!isWorkScheduledOnCoordinator) {
+            nodes.remove(nodeManager.getCurrentNode().getNodeIdentifier());
         }
 
         // Schedule refresh
@@ -517,26 +589,20 @@ public class ClusterMemoryManager
 
     @PreDestroy
     public synchronized void destroy()
+            throws IOException
     {
-        try {
+        try (Closer closer = Closer.create()) {
             for (ClusterMemoryPool pool : pools.values()) {
-                unexport(pool);
+                closer.register(() -> exporter.unexport(generatedNameOf(ClusterMemoryPool.class, pool.getId().toString())));
             }
-        }
-        finally {
-            listenerExecutor.shutdownNow();
+            closer.register(listenerExecutor::shutdownNow);
         }
     }
 
-    private void unexport(ClusterMemoryPool pool)
+    @Managed
+    public int getNumberOfLeakedQueries()
     {
-        try {
-            String objectName = ObjectNames.builder(ClusterMemoryPool.class, pool.getId().toString()).build();
-            exporter.unexport(objectName);
-        }
-        catch (JmxException e) {
-            log.error(e, "Failed to unexport pool %s", pool.getId());
-        }
+        return memoryLeakDetector.getNumberOfLeakedQueries();
     }
 
     @Managed

@@ -20,8 +20,10 @@ import com.facebook.presto.spi.connector.ConnectorTransactionHandle;
 import com.facebook.presto.spi.security.AccessDeniedException;
 import com.facebook.presto.spi.security.Identity;
 import com.facebook.presto.spi.security.Privilege;
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableSet;
-import io.airlift.json.JsonCodec;
+import io.airlift.json.ObjectMapperProvider;
 
 import javax.inject.Inject;
 
@@ -38,19 +40,23 @@ import static com.facebook.presto.plugin.base.security.TableAccessControlRule.Ta
 import static com.facebook.presto.plugin.base.security.TableAccessControlRule.TablePrivilege.OWNERSHIP;
 import static com.facebook.presto.plugin.base.security.TableAccessControlRule.TablePrivilege.SELECT;
 import static com.facebook.presto.spi.security.AccessDeniedException.denyAddColumn;
+import static com.facebook.presto.spi.security.AccessDeniedException.denyCreateSchema;
 import static com.facebook.presto.spi.security.AccessDeniedException.denyCreateTable;
 import static com.facebook.presto.spi.security.AccessDeniedException.denyCreateView;
 import static com.facebook.presto.spi.security.AccessDeniedException.denyCreateViewWithSelect;
 import static com.facebook.presto.spi.security.AccessDeniedException.denyDeleteTable;
 import static com.facebook.presto.spi.security.AccessDeniedException.denyDropColumn;
+import static com.facebook.presto.spi.security.AccessDeniedException.denyDropSchema;
 import static com.facebook.presto.spi.security.AccessDeniedException.denyDropTable;
 import static com.facebook.presto.spi.security.AccessDeniedException.denyDropView;
 import static com.facebook.presto.spi.security.AccessDeniedException.denyGrantTablePrivilege;
 import static com.facebook.presto.spi.security.AccessDeniedException.denyInsertTable;
 import static com.facebook.presto.spi.security.AccessDeniedException.denyRenameColumn;
+import static com.facebook.presto.spi.security.AccessDeniedException.denyRenameSchema;
 import static com.facebook.presto.spi.security.AccessDeniedException.denyRenameTable;
 import static com.facebook.presto.spi.security.AccessDeniedException.denyRevokeTablePrivilege;
 import static com.facebook.presto.spi.security.AccessDeniedException.denySelectTable;
+import static java.lang.String.format;
 
 public class FileBasedAccessControl
         implements ConnectorAccessControl
@@ -62,14 +68,45 @@ public class FileBasedAccessControl
     private final List<SessionPropertyAccessControlRule> sessionPropertyRules;
 
     @Inject
-    public FileBasedAccessControl(FileBasedAccessControlConfig config, JsonCodec<AccessControlRules> codec)
+    public FileBasedAccessControl(FileBasedAccessControlConfig config)
             throws IOException
     {
-        AccessControlRules rules = codec.fromJson(Files.readAllBytes(Paths.get(config.getConfigFile())));
+        AccessControlRules rules = parse(Files.readAllBytes(Paths.get(config.getConfigFile())));
 
         this.schemaRules = rules.getSchemaRules();
         this.tableRules = rules.getTableRules();
         this.sessionPropertyRules = rules.getSessionPropertyRules();
+    }
+
+    private static AccessControlRules parse(byte[] json)
+    {
+        ObjectMapper mapper = new ObjectMapperProvider().get()
+                .enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
+        Class<AccessControlRules> javaType = AccessControlRules.class;
+        try {
+            return mapper.readValue(json, javaType);
+        }
+        catch (IOException e) {
+            throw new IllegalArgumentException(format("Invalid JSON string for %s", javaType), e);
+        }
+    }
+
+    @Override
+    public void checkCanCreateSchema(ConnectorTransactionHandle transactionHandle, Identity identity, String schemaName)
+    {
+        denyCreateSchema(schemaName);
+    }
+
+    @Override
+    public void checkCanDropSchema(ConnectorTransactionHandle transactionHandle, Identity identity, String schemaName)
+    {
+        denyDropSchema(schemaName);
+    }
+
+    @Override
+    public void checkCanRenameSchema(ConnectorTransactionHandle transactionHandle, Identity identity, String schemaName, String newSchemaName)
+    {
+        denyRenameSchema(schemaName, newSchemaName);
     }
 
     @Override
@@ -196,7 +233,7 @@ public class FileBasedAccessControl
     }
 
     @Override
-    public void checkCanSetCatalogSessionProperty(Identity identity, String propertyName)
+    public void checkCanSetCatalogSessionProperty(ConnectorTransactionHandle transactionHandle, Identity identity, String propertyName)
     {
         if (!canSetSessionProperty(identity, propertyName)) {
             denySetSessionProperty(propertyName);

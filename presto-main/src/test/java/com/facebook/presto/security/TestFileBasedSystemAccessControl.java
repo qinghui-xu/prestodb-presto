@@ -18,6 +18,7 @@ import com.facebook.presto.spi.CatalogSchemaName;
 import com.facebook.presto.spi.SchemaTableName;
 import com.facebook.presto.spi.security.AccessDeniedException;
 import com.facebook.presto.spi.security.Identity;
+import com.facebook.presto.spi.security.SystemAccessControl;
 import com.facebook.presto.transaction.TransactionManager;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -28,9 +29,12 @@ import javax.security.auth.kerberos.KerberosPrincipal;
 import java.util.Optional;
 import java.util.Set;
 
+import static com.facebook.presto.security.FileBasedSystemAccessControl.Factory.CONFIG_FILE_NAME;
 import static com.facebook.presto.spi.security.Privilege.SELECT;
+import static com.facebook.presto.spi.testing.InterfaceTestUtils.assertAllMethodsOverridden;
+import static com.facebook.presto.transaction.InMemoryTransactionManager.createTestTransactionManager;
 import static com.facebook.presto.transaction.TransactionBuilder.transaction;
-import static com.facebook.presto.transaction.TransactionManager.createTestTransactionManager;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertThrows;
 
@@ -60,33 +64,33 @@ public class TestFileBasedSystemAccessControl
         AccessControlManager accessControlManager = newAccessControlManager(transactionManager, "catalog_principal.json");
 
         try {
-            accessControlManager.checkCanSetUser(null, alice.getUser());
+            accessControlManager.checkCanSetUser(Optional.empty(), alice.getUser());
             throw new AssertionError("expected AccessDeniedExeption");
         }
         catch (AccessDeniedException expected) {
         }
 
-        accessControlManager.checkCanSetUser(kerberosValidAlice.getPrincipal().get(), kerberosValidAlice.getUser());
-        accessControlManager.checkCanSetUser(kerberosValidNonAsciiUser.getPrincipal().get(), kerberosValidNonAsciiUser.getUser());
+        accessControlManager.checkCanSetUser(kerberosValidAlice.getPrincipal(), kerberosValidAlice.getUser());
+        accessControlManager.checkCanSetUser(kerberosValidNonAsciiUser.getPrincipal(), kerberosValidNonAsciiUser.getUser());
         try {
-            accessControlManager.checkCanSetUser(kerberosInvalidAlice.getPrincipal().get(), kerberosInvalidAlice.getUser());
+            accessControlManager.checkCanSetUser(kerberosInvalidAlice.getPrincipal(), kerberosInvalidAlice.getUser());
             throw new AssertionError("expected AccessDeniedExeption");
         }
         catch (AccessDeniedException expected) {
         }
 
-        accessControlManager.checkCanSetUser(kerberosValidShare.getPrincipal().get(), kerberosValidShare.getUser());
+        accessControlManager.checkCanSetUser(kerberosValidShare.getPrincipal(), kerberosValidShare.getUser());
         try {
-            accessControlManager.checkCanSetUser(kerberosInValidShare.getPrincipal().get(), kerberosInValidShare.getUser());
+            accessControlManager.checkCanSetUser(kerberosInValidShare.getPrincipal(), kerberosInValidShare.getUser());
             throw new AssertionError("expected AccessDeniedExeption");
         }
         catch (AccessDeniedException expected) {
         }
 
-        accessControlManager.checkCanSetUser(validSpecialRegexWildDot.getPrincipal().get(), validSpecialRegexWildDot.getUser());
-        accessControlManager.checkCanSetUser(validSpecialRegexEndQuote.getPrincipal().get(), validSpecialRegexEndQuote.getUser());
+        accessControlManager.checkCanSetUser(validSpecialRegexWildDot.getPrincipal(), validSpecialRegexWildDot.getUser());
+        accessControlManager.checkCanSetUser(validSpecialRegexEndQuote.getPrincipal(), validSpecialRegexEndQuote.getUser());
         try {
-            accessControlManager.checkCanSetUser(invalidSpecialRegex.getPrincipal().get(), invalidSpecialRegex.getUser());
+            accessControlManager.checkCanSetUser(invalidSpecialRegex.getPrincipal(), invalidSpecialRegex.getUser());
             throw new AssertionError("expected AccessDeniedExeption");
         }
         catch (AccessDeniedException expected) {
@@ -94,7 +98,7 @@ public class TestFileBasedSystemAccessControl
 
         TransactionManager transactionManagerNoPatterns = createTestTransactionManager();
         AccessControlManager accessControlManagerNoPatterns = newAccessControlManager(transactionManager, "catalog.json");
-        accessControlManagerNoPatterns.checkCanSetUser(kerberosValidAlice.getPrincipal().get(), kerberosValidAlice.getUser());
+        accessControlManagerNoPatterns.checkCanSetUser(kerberosValidAlice.getPrincipal(), kerberosValidAlice.getUser());
     }
 
     @Test
@@ -151,7 +155,7 @@ public class TestFileBasedSystemAccessControl
 
                     accessControlManager.checkCanCreateTable(transactionId, alice, aliceTable);
                     accessControlManager.checkCanDropTable(transactionId, alice, aliceTable);
-                    accessControlManager.checkCanSelectFromTable(transactionId, alice, aliceTable);
+                    accessControlManager.checkCanSelectFromColumns(transactionId, alice, aliceTable, ImmutableSet.of());
                     accessControlManager.checkCanInsertIntoTable(transactionId, alice, aliceTable);
                     accessControlManager.checkCanDeleteFromTable(transactionId, alice, aliceTable);
                     accessControlManager.checkCanAddColumns(transactionId, alice, aliceTable);
@@ -172,9 +176,9 @@ public class TestFileBasedSystemAccessControl
                 .execute(transactionId -> {
                     accessControlManager.checkCanCreateView(transactionId, alice, aliceView);
                     accessControlManager.checkCanDropView(transactionId, alice, aliceView);
-                    accessControlManager.checkCanSelectFromView(transactionId, alice, aliceView);
-                    accessControlManager.checkCanCreateViewWithSelectFromTable(transactionId, alice, aliceTable);
-                    accessControlManager.checkCanCreateViewWithSelectFromView(transactionId, alice, aliceView);
+                    accessControlManager.checkCanSelectFromColumns(transactionId, alice, aliceView, ImmutableSet.of());
+                    accessControlManager.checkCanCreateViewWithSelectFromColumns(transactionId, alice, aliceTable, ImmutableSet.of());
+                    accessControlManager.checkCanCreateViewWithSelectFromColumns(transactionId, alice, aliceView, ImmutableSet.of());
                     accessControlManager.checkCanSetCatalogSessionProperty(transactionId, alice, "alice-catalog", "property");
                     accessControlManager.checkCanGrantTablePrivilege(transactionId, alice, SELECT, aliceTable, "grantee", true);
                     accessControlManager.checkCanRevokeTablePrivilege(transactionId, alice, SELECT, aliceTable, "revokee", true);
@@ -182,6 +186,12 @@ public class TestFileBasedSystemAccessControl
         assertThrows(AccessDeniedException.class, () -> transaction(transactionManager, accessControlManager).execute(transactionId -> {
             accessControlManager.checkCanCreateView(transactionId, bob, aliceView);
         }));
+    }
+
+    @Test
+    public void testEverythingImplemented()
+    {
+        assertAllMethodsOverridden(SystemAccessControl.class, FileBasedSystemAccessControl.class);
     }
 
     private AccessControlManager newAccessControlManager(TransactionManager transactionManager, String resourceName)
@@ -192,5 +202,17 @@ public class TestFileBasedSystemAccessControl
         accessControlManager.setSystemAccessControl(FileBasedSystemAccessControl.NAME, ImmutableMap.of("security.config-file", path));
 
         return accessControlManager;
+    }
+
+    @Test
+    public void parseUnknownRules()
+    {
+        assertThatThrownBy(() -> parse("src/test/resources/security-config-file-with-unknown-rules.json"))
+                .hasMessageContaining("Invalid JSON");
+    }
+
+    private SystemAccessControl parse(String path)
+    {
+        return new FileBasedSystemAccessControl.Factory().create(ImmutableMap.of(CONFIG_FILE_NAME, path));
     }
 }

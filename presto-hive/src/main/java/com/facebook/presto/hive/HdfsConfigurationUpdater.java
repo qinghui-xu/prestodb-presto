@@ -21,6 +21,7 @@ import io.airlift.units.Duration;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.ql.io.orc.OrcFile.OrcTableProperties;
+import org.apache.hadoop.mapreduce.lib.input.LineRecordReader;
 import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
 import org.apache.hadoop.net.DNSToSwitchMapping;
 import org.apache.hadoop.net.SocksSocketFactory;
@@ -37,6 +38,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static java.lang.Math.toIntExact;
 import static java.util.Objects.requireNonNull;
 import static org.apache.hadoop.fs.CommonConfigurationKeys.IPC_PING_INTERVAL_KEY;
+import static org.apache.hadoop.fs.CommonConfigurationKeysPublic.HADOOP_RPC_PROTECTION;
 import static org.apache.hadoop.fs.CommonConfigurationKeysPublic.HADOOP_RPC_SOCKET_FACTORY_CLASS_DEFAULT_KEY;
 import static org.apache.hadoop.fs.CommonConfigurationKeysPublic.HADOOP_SOCKS_SERVER_KEY;
 import static org.apache.hadoop.fs.CommonConfigurationKeysPublic.IPC_CLIENT_CONNECT_MAX_RETRIES_KEY;
@@ -61,6 +63,8 @@ public class HdfsConfigurationUpdater
     private final HiveCompressionCodec compressionCodec;
     private final int fileSystemMaxCacheSize;
     private final S3ConfigurationUpdater s3ConfigurationUpdater;
+    private final boolean isHdfsWireEncryptionEnabled;
+    private int textMaxLineLength;
 
     @VisibleForTesting
     public HdfsConfigurationUpdater(HiveClientConfig config)
@@ -73,6 +77,7 @@ public class HdfsConfigurationUpdater
     {
         requireNonNull(config, "config is null");
         checkArgument(config.getDfsTimeout().toMillis() >= 1, "dfsTimeout must be at least 1 ms");
+        checkArgument(toIntExact(config.getTextMaxLineLength().toBytes()) >= 1, "textMaxLineLength must be at least 1 byte");
 
         this.socksProxy = config.getMetastoreSocksProxy();
         this.ipcPingInterval = config.getIpcPingInterval();
@@ -83,6 +88,8 @@ public class HdfsConfigurationUpdater
         this.resourcesConfiguration = readConfiguration(config.getResourceConfigFiles());
         this.compressionCodec = config.getHiveCompressionCodec();
         this.fileSystemMaxCacheSize = config.getFileSystemMaxCacheSize();
+        this.isHdfsWireEncryptionEnabled = config.isHdfsWireEncryptionEnabled();
+        this.textMaxLineLength = toIntExact(config.getTextMaxLineLength().toBytes());
 
         this.s3ConfigurationUpdater = requireNonNull(s3ConfigurationUpdater, "s3ConfigurationUpdater is null");
     }
@@ -90,9 +97,6 @@ public class HdfsConfigurationUpdater
     private static Configuration readConfiguration(List<String> resourcePaths)
     {
         Configuration result = new Configuration(false);
-        if (resourcePaths == null) {
-            return result;
-        }
 
         for (String resourcePath : resourcePaths) {
             Configuration resourceProperties = new Configuration(false);
@@ -129,7 +133,14 @@ public class HdfsConfigurationUpdater
         config.setInt(IPC_CLIENT_CONNECT_TIMEOUT_KEY, toIntExact(dfsConnectTimeout.toMillis()));
         config.setInt(IPC_CLIENT_CONNECT_MAX_RETRIES_KEY, dfsConnectMaxRetries);
 
+        if (isHdfsWireEncryptionEnabled) {
+            config.set(HADOOP_RPC_PROTECTION, "privacy");
+            config.setBoolean("dfs.encrypt.data.transfer", true);
+        }
+
         config.setInt("fs.cache.max-size", fileSystemMaxCacheSize);
+
+        config.setInt(LineRecordReader.MAX_LINE_LENGTH, textMaxLineLength);
 
         configureCompression(config, compressionCodec);
 

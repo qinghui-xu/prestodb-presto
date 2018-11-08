@@ -16,6 +16,7 @@ package com.facebook.presto.execution;
 
 import com.facebook.presto.Session;
 import com.facebook.presto.Session.SessionBuilder;
+import com.facebook.presto.execution.warnings.WarningCollector;
 import com.facebook.presto.metadata.MetadataManager;
 import com.facebook.presto.security.AccessControl;
 import com.facebook.presto.security.AccessControlManager;
@@ -29,13 +30,14 @@ import org.testng.annotations.AfterClass;
 import org.testng.annotations.Test;
 
 import java.net.URI;
+import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 
 import static com.facebook.presto.spi.StandardErrorCode.NOT_IN_TRANSACTION;
 import static com.facebook.presto.spi.StandardErrorCode.UNKNOWN_TRANSACTION;
 import static com.facebook.presto.testing.TestingSession.testSessionBuilder;
 import static com.facebook.presto.tpch.TpchMetadata.TINY_SCHEMA_NAME;
-import static com.facebook.presto.transaction.TransactionManager.createTestTransactionManager;
+import static com.facebook.presto.transaction.InMemoryTransactionManager.createTestTransactionManager;
 import static io.airlift.concurrent.MoreFutures.getFutureValue;
 import static io.airlift.concurrent.Threads.daemonThreadsNamed;
 import static java.util.Collections.emptyList;
@@ -65,13 +67,13 @@ public class TestCommitTask
         Session session = sessionBuilder()
                 .setTransactionId(transactionManager.beginTransaction(false))
                 .build();
-        QueryStateMachine stateMachine = QueryStateMachine.begin(new QueryId("query"), "COMMIT", session, URI.create("fake://uri"), true, transactionManager, accessControl, executor, metadata);
+        QueryStateMachine stateMachine = QueryStateMachine.begin(new QueryId("query"), "COMMIT", session, URI.create("fake://uri"), true, transactionManager, accessControl, executor, metadata, WarningCollector.NOOP);
         assertTrue(stateMachine.getSession().getTransactionId().isPresent());
         assertEquals(transactionManager.getAllTransactionInfos().size(), 1);
 
         getFutureValue(new CommitTask().execute(new Commit(), transactionManager, metadata, new AllowAllAccessControl(), stateMachine, emptyList()));
-        assertTrue(stateMachine.getQueryInfoWithoutDetails().isClearTransactionId());
-        assertFalse(stateMachine.getQueryInfoWithoutDetails().getStartedTransactionId().isPresent());
+        assertTrue(stateMachine.getQueryInfo(Optional.empty()).isClearTransactionId());
+        assertFalse(stateMachine.getQueryInfo(Optional.empty()).getStartedTransactionId().isPresent());
 
         assertTrue(transactionManager.getAllTransactionInfos().isEmpty());
     }
@@ -84,7 +86,7 @@ public class TestCommitTask
 
         Session session = sessionBuilder()
                 .build();
-        QueryStateMachine stateMachine = QueryStateMachine.begin(new QueryId("query"), "COMMIT", session, URI.create("fake://uri"), true, transactionManager, accessControl, executor, metadata);
+        QueryStateMachine stateMachine = QueryStateMachine.begin(new QueryId("query"), "COMMIT", session, URI.create("fake://uri"), true, transactionManager, accessControl, executor, metadata, WarningCollector.NOOP);
 
         try {
             getFutureValue(new CommitTask().execute(new Commit(), transactionManager, metadata, new AllowAllAccessControl(), stateMachine, emptyList()));
@@ -93,8 +95,8 @@ public class TestCommitTask
         catch (PrestoException e) {
             assertEquals(e.getErrorCode(), NOT_IN_TRANSACTION.toErrorCode());
         }
-        assertFalse(stateMachine.getQueryInfoWithoutDetails().isClearTransactionId());
-        assertFalse(stateMachine.getQueryInfoWithoutDetails().getStartedTransactionId().isPresent());
+        assertFalse(stateMachine.getQueryInfo(Optional.empty()).isClearTransactionId());
+        assertFalse(stateMachine.getQueryInfo(Optional.empty()).getStartedTransactionId().isPresent());
 
         assertTrue(transactionManager.getAllTransactionInfos().isEmpty());
     }
@@ -108,7 +110,7 @@ public class TestCommitTask
         Session session = sessionBuilder()
                 .setTransactionId(TransactionId.create()) // Use a random transaction ID that is unknown to the system
                 .build();
-        QueryStateMachine stateMachine = QueryStateMachine.begin(new QueryId("query"), "COMMIT", session, URI.create("fake://uri"), true, transactionManager, accessControl, executor, metadata);
+        QueryStateMachine stateMachine = QueryStateMachine.begin(new QueryId("query"), "COMMIT", session, URI.create("fake://uri"), true, transactionManager, accessControl, executor, metadata, WarningCollector.NOOP);
 
         try {
             getFutureValue(new CommitTask().execute(new Commit(), transactionManager, metadata, new AllowAllAccessControl(), stateMachine, emptyList()));
@@ -117,8 +119,8 @@ public class TestCommitTask
         catch (PrestoException e) {
             assertEquals(e.getErrorCode(), UNKNOWN_TRANSACTION.toErrorCode());
         }
-        assertTrue(stateMachine.getQueryInfoWithoutDetails().isClearTransactionId()); // Still issue clear signal
-        assertFalse(stateMachine.getQueryInfoWithoutDetails().getStartedTransactionId().isPresent());
+        assertTrue(stateMachine.getQueryInfo(Optional.empty()).isClearTransactionId()); // Still issue clear signal
+        assertFalse(stateMachine.getQueryInfo(Optional.empty()).getStartedTransactionId().isPresent());
 
         assertTrue(transactionManager.getAllTransactionInfos().isEmpty());
     }

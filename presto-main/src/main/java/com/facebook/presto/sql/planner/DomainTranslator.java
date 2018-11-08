@@ -14,6 +14,7 @@
 package com.facebook.presto.sql.planner;
 
 import com.facebook.presto.Session;
+import com.facebook.presto.execution.warnings.WarningCollector;
 import com.facebook.presto.metadata.Metadata;
 import com.facebook.presto.metadata.Signature;
 import com.facebook.presto.spi.block.Block;
@@ -29,7 +30,7 @@ import com.facebook.presto.spi.predicate.Utils;
 import com.facebook.presto.spi.predicate.ValueSet;
 import com.facebook.presto.spi.type.Type;
 import com.facebook.presto.sql.ExpressionUtils;
-import com.facebook.presto.sql.FunctionInvoker;
+import com.facebook.presto.sql.InterpretedFunctionInvoker;
 import com.facebook.presto.sql.analyzer.ExpressionAnalyzer;
 import com.facebook.presto.sql.parser.SqlParser;
 import com.facebook.presto.sql.tree.AstVisitor;
@@ -286,7 +287,7 @@ public final class DomainTranslator
         private final LiteralEncoder literalEncoder;
         private final Session session;
         private final TypeProvider types;
-        private final FunctionInvoker functionInvoker;
+        private final InterpretedFunctionInvoker functionInvoker;
 
         private Visitor(Metadata metadata, Session session, TypeProvider types)
         {
@@ -294,7 +295,7 @@ public final class DomainTranslator
             this.literalEncoder = new LiteralEncoder(metadata.getBlockEncodingSerde());
             this.session = requireNonNull(session, "session is null");
             this.types = requireNonNull(types, "types is null");
-            this.functionInvoker = new FunctionInvoker(metadata.getFunctionRegistry());
+            this.functionInvoker = new InterpretedFunctionInvoker(metadata.getFunctionRegistry());
         }
 
         private Type checkedTypeLookup(Symbol symbol)
@@ -335,7 +336,7 @@ public final class DomainTranslator
             TupleDomain<Symbol> leftTupleDomain = leftResult.getTupleDomain();
             TupleDomain<Symbol> rightTupleDomain = rightResult.getTupleDomain();
 
-            LogicalBinaryExpression.Operator operator = complement ? flipLogicalBinaryType(node.getOperator()) : node.getOperator();
+            LogicalBinaryExpression.Operator operator = complement ? node.getOperator().flip() : node.getOperator();
             switch (operator) {
                 case AND:
                     return new ExtractionResult(
@@ -374,18 +375,6 @@ public final class DomainTranslator
 
                 default:
                     throw new AssertionError("Unknown operator: " + node.getOperator());
-            }
-        }
-
-        private static LogicalBinaryExpression.Operator flipLogicalBinaryType(LogicalBinaryExpression.Operator operator)
-        {
-            switch (operator) {
-                case AND:
-                    return LogicalBinaryExpression.Operator.OR;
-                case OR:
-                    return LogicalBinaryExpression.Operator.AND;
-                default:
-                    throw new AssertionError("Unknown operator: " + operator);
             }
         }
 
@@ -500,7 +489,7 @@ public final class DomainTranslator
 
         private Map<NodeRef<Expression>, Type> analyzeExpression(Expression expression)
         {
-            return ExpressionAnalyzer.getExpressionTypes(session, metadata, new SqlParser(), types, expression, emptyList() /* parameters already replaced */);
+            return ExpressionAnalyzer.getExpressionTypes(session, metadata, new SqlParser(), types, expression, emptyList(), WarningCollector.NOOP);
         }
 
         private static ExtractionResult createComparisonExtractionResult(ComparisonExpression.Operator comparisonOperator, Symbol column, Type type, @Nullable Object value, boolean complement)
@@ -770,7 +759,7 @@ public final class DomainTranslator
 
     private static Type typeOf(Expression expression, Session session, Metadata metadata, TypeProvider types)
     {
-        Map<NodeRef<Expression>, Type> expressionTypes = ExpressionAnalyzer.getExpressionTypes(session, metadata, new SqlParser(), types, expression, emptyList() /* parameters already replaced */);
+        Map<NodeRef<Expression>, Type> expressionTypes = ExpressionAnalyzer.getExpressionTypes(session, metadata, new SqlParser(), types, expression, emptyList(), WarningCollector.NOOP);
         return expressionTypes.get(NodeRef.of(expression));
     }
 

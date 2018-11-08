@@ -14,6 +14,7 @@
 package com.facebook.presto.sql.planner.optimizations;
 
 import com.facebook.presto.Session;
+import com.facebook.presto.execution.warnings.WarningCollector;
 import com.facebook.presto.metadata.FunctionRegistry;
 import com.facebook.presto.metadata.Metadata;
 import com.facebook.presto.spi.type.BigintType;
@@ -55,6 +56,7 @@ import java.util.function.Function;
 
 import static com.facebook.presto.sql.ExpressionUtils.combineConjuncts;
 import static com.facebook.presto.sql.analyzer.TypeSignatureProvider.fromTypeSignatures;
+import static com.facebook.presto.sql.planner.plan.AggregationNode.globalAggregation;
 import static com.facebook.presto.sql.planner.plan.SimplePlanRewriter.rewriteWith;
 import static com.facebook.presto.sql.tree.BooleanLiteral.FALSE_LITERAL;
 import static com.facebook.presto.sql.tree.BooleanLiteral.TRUE_LITERAL;
@@ -81,7 +83,7 @@ public class TransformQuantifiedComparisonApplyToLateralJoin
     }
 
     @Override
-    public PlanNode optimize(PlanNode plan, Session session, TypeProvider types, SymbolAllocator symbolAllocator, PlanNodeIdAllocator idAllocator)
+    public PlanNode optimize(PlanNode plan, Session session, TypeProvider types, SymbolAllocator symbolAllocator, PlanNodeIdAllocator idAllocator, WarningCollector warningCollector)
     {
         return rewriteWith(new Rewriter(idAllocator, types, symbolAllocator, metadata), plan, null);
     }
@@ -160,7 +162,7 @@ public class TransformQuantifiedComparisonApplyToLateralJoin
                                     new FunctionCall(COUNT, outputColumnReferences),
                                     functionRegistry.resolveFunction(COUNT, fromTypeSignatures(outputColumnTypeSignature)),
                                     Optional.empty())),
-                    ImmutableList.of(ImmutableList.of()),
+                    globalAggregation(),
                     ImmutableList.of(),
                     AggregationNode.Step.SINGLE,
                     Optional.empty(),

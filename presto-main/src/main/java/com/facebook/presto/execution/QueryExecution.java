@@ -14,7 +14,9 @@
 package com.facebook.presto.execution;
 
 import com.facebook.presto.Session;
+import com.facebook.presto.execution.QueryTracker.TrackedQuery;
 import com.facebook.presto.execution.StateMachine.StateChangeListener;
+import com.facebook.presto.execution.warnings.WarningCollector;
 import com.facebook.presto.memory.VersionedMemoryPoolId;
 import com.facebook.presto.spi.QueryId;
 import com.facebook.presto.spi.resourceGroups.ResourceGroupId;
@@ -25,7 +27,6 @@ import com.facebook.presto.sql.tree.Statement;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.util.concurrent.ListenableFuture;
-import io.airlift.units.Duration;
 
 import java.net.URI;
 import java.util.List;
@@ -36,11 +37,8 @@ import java.util.function.Consumer;
 import static java.util.Objects.requireNonNull;
 
 public interface QueryExecution
+        extends ManagedQueryExecution, TrackedQuery
 {
-    QueryId getQueryId();
-
-    QueryInfo getQueryInfo();
-
     QueryState getState();
 
     ListenableFuture<QueryState> getStateChange(QueryState currentState);
@@ -49,28 +47,13 @@ public interface QueryExecution
 
     Optional<ResourceGroupId> getResourceGroup();
 
-    void setResourceGroup(ResourceGroupId resourceGroupId);
-
     Plan getQueryPlan();
+
+    QueryInfo getQueryInfo();
 
     VersionedMemoryPoolId getMemoryPool();
 
     void setMemoryPool(VersionedMemoryPoolId poolId);
-
-    long getUserMemoryReservation();
-
-    /**
-     * @return the user + system memory reservation
-     */
-    long getTotalMemoryReservation();
-
-    Duration getTotalCpuTime();
-
-    Session getSession();
-
-    void start();
-
-    void fail(Throwable cause);
 
     void cancelQuery();
 
@@ -78,16 +61,11 @@ public interface QueryExecution
 
     void recordHeartbeat();
 
-    // XXX: This should be removed when the client protocol is improved, so that we don't need to hold onto so much query history
-    void pruneInfo();
-
-    void addStateChangeListener(StateChangeListener<QueryState> stateChangeListener);
-
     void addFinalQueryInfoListener(StateChangeListener<QueryInfo> stateChangeListener);
 
     interface QueryExecutionFactory<T extends QueryExecution>
     {
-        T createQueryExecution(QueryId queryId, String query, Session session, Statement statement, List<Expression> parameters);
+        T createQueryExecution(QueryId queryId, String query, Session session, Statement statement, List<Expression> parameters, WarningCollector warningCollector);
     }
 
     /**
