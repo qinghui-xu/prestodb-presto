@@ -14,7 +14,10 @@
 package com.facebook.presto.execution;
 
 import com.facebook.presto.Session;
-import com.facebook.presto.execution.QueryTracker.TrackedQuery;
+import com.facebook.presto.server.BasicQueryInfo;
+import com.facebook.presto.server.extension.ExtensionFactory;
+import com.facebook.presto.server.extension.query.history.QueryHistorySQLStore;
+import com.facebook.presto.server.extension.query.history.QueryHistoryStore;
 import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.spi.QueryId;
 import com.google.common.collect.ImmutableList;
@@ -25,9 +28,12 @@ import org.joda.time.DateTime;
 import javax.annotation.concurrent.GuardedBy;
 import javax.annotation.concurrent.ThreadSafe;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.util.Collection;
 import java.util.NoSuchElementException;
 import java.util.Optional;
+import java.util.Properties;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -46,9 +52,12 @@ import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
 
 @ThreadSafe
-public class QueryTracker<T extends TrackedQuery>
+public class QueryTracker<T extends QueryExecution>
 {
     private static final Logger log = Logger.get(QueryTracker.class);
+
+    private static final String CONFIG_RESOURCE = "META-INF/presto/extension/history/jdbc.properties";
+    public static final String QUERY_HISTORY_EXTENSION = "extension.query.history";
 
     private final int maxQueryHistory;
     private final Duration minQueryExpireAge;
@@ -63,6 +72,8 @@ public class QueryTracker<T extends TrackedQuery>
     @GuardedBy("this")
     private ScheduledFuture<?> backgroundTask;
 
+    private Optional<? extends QueryHistoryStore> queryHistoryStore;
+
     public QueryTracker(QueryManagerConfig queryManagerConfig, ScheduledExecutorService queryManagementExecutor)
     {
         requireNonNull(queryManagerConfig, "queryManagerConfig is null");
@@ -71,6 +82,34 @@ public class QueryTracker<T extends TrackedQuery>
         this.clientTimeout = queryManagerConfig.getClientTimeout();
 
         this.queryManagementExecutor = requireNonNull(queryManagementExecutor, "queryManagementExecutor is null");
+        queryHistoryStore = loadQueryHistoryExtension();
+    }
+
+    private Optional<? extends QueryHistoryStore> loadQueryHistoryExtension()
+    {
+        String queryHistoryExtension = System.getProperty(QUERY_HISTORY_EXTENSION);
+        if (queryHistoryExtension == null) {
+            return Optional.empty();
+        }
+        Properties extensionProps = null;
+        try {
+            extensionProps = getExtensionConf();
+        }
+        catch (IOException e) {
+            log.warn("Failed to load config for " + queryHistoryExtension);
+            return Optional.empty();
+        }
+        return ExtensionFactory.INSTANCE.createExtension(queryHistoryExtension, extensionProps, QueryHistoryStore.class);
+    }
+
+    private Properties getExtensionConf() throws IOException
+    {
+        Properties config;
+        config = new Properties();
+        try (InputStream configResource = QueryHistorySQLStore.class.getClassLoader().getResourceAsStream(CONFIG_RESOURCE)) {
+            config.load(configResource);
+        }
+        return config;
     }
 
     public synchronized void start()
@@ -147,6 +186,22 @@ public class QueryTracker<T extends TrackedQuery>
                 .orElseThrow(NoSuchElementException::new);
     }
 
+    public BasicQueryInfo getCurrentOrPastBasicQueryInfo(QueryId queryId)
+    {
+        return tryGetQuery(queryId).map(QueryExecution::getBasicQueryInfo)
+                .orElseGet(() ->
+                        queryHistoryStore.map(store -> store.getBasicQueryInfo(queryId))
+                                .orElseThrow(NoSuchElementException::new));
+    }
+
+    public QueryInfo getCurrentOrPastFullQueryInfo(QueryId queryId)
+    {
+        return tryGetQuery(queryId).map(QueryExecution::getQueryInfo)
+                .orElseGet(() ->
+                        queryHistoryStore.map(store -> store.getFullQueryInfo(queryId))
+                                .orElseThrow(NoSuchElementException::new));
+    }
+
     public Optional<T> tryGetQuery(QueryId queryId)
     {
         requireNonNull(queryId, "queryId is null");
@@ -163,8 +218,12 @@ public class QueryTracker<T extends TrackedQuery>
      */
     public void expireQuery(QueryId queryId)
     {
-        tryGetQuery(queryId)
-                .ifPresent(expirationQueue::add);
+        Optional<T> expiredQuery = tryGetQuery(queryId);
+        expiredQuery.ifPresent(expirationQueue::add);
+        // Save the expired query to the history store with help of the extension.
+        expiredQuery.ifPresent(query ->
+                queryHistoryStore.ifPresent(store ->
+                        store.saveFullQueryInfo(query.getQueryInfo())));
     }
 
     /**
