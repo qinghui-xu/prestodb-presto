@@ -106,8 +106,8 @@ public class QueryHistorySQLStore
                 statement.setString(1, queryId.getId());
                 try {
                     ResultSet resultSet = statement.executeQuery();
-                    String json = resultSet.getString("query_info");
-                    return queryJsonParser.readValue(json, QueryInfo.class);
+                    Clob json = resultSet.getClob("query_info");
+                    return queryJsonParser.readValue(json.getCharacterStream(), QueryInfo.class);
                 }
                 finally {
                     statement.close();
