@@ -24,13 +24,13 @@ import java.net.URL;
 
 import static org.testng.Assert.assertEquals;
 
-public class QueryInfoJsonSerDeTest
+public class TestQueryInfoJsonSerDe
 {
     @Test
     public void testParseJson() throws IOException
     {
         ObjectMapper queryJsonParser = QueryHistorySQLStore.getQueryJsonParser();
-        URL jsonResource = QueryInfoJsonSerDeTest.class.getClassLoader()
+        URL jsonResource = TestQueryInfoJsonSerDe.class.getClassLoader()
                 .getResource("com/facebook/presto/server/extension/query/history/query-info.json");
         QueryInfo queryInfo = queryJsonParser.readValue(jsonResource, QueryInfo.class);
         assertEquals(queryInfo.getSession().getUser(), "s.fitoussi");
