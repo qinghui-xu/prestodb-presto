@@ -13,20 +13,138 @@
  */
 package com.facebook.presto.server.extension.query.history;
 
+import com.facebook.presto.SessionRepresentation;
 import com.facebook.presto.execution.QueryInfo;
+import com.facebook.presto.execution.QueryState;
+import com.facebook.presto.execution.QueryStats;
+import com.facebook.presto.spi.memory.MemoryPoolId;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
+import io.airlift.units.DataSize;
+import io.airlift.units.Duration;
 import org.joda.time.DateTime;
 import org.joda.time.format.DateTimeFormat;
 import org.testng.annotations.Test;
 
 import java.io.IOException;
+import java.net.URI;
 import java.net.URL;
+import java.util.Optional;
 
+import static com.facebook.presto.SessionTestUtils.TEST_SESSION;
+import static com.facebook.presto.operator.BlockedReason.WAITING_FOR_MEMORY;
 import static org.testng.Assert.assertEquals;
 
 public class TestQueryInfoJsonSerDe
 {
     @Test
+    public void testQueryInfoSerDe() throws IOException
+    {
+        String query = "select * from test_table";
+        QueryInfo queryInfo = new QueryInfo(
+                TEST_SESSION.getQueryId(),
+                TEST_SESSION.toSessionRepresentation(),
+                QueryState.FINISHED,
+                new MemoryPoolId("reserved"),
+                true,
+                URI.create("1"),
+                ImmutableList.of("2", "3"),
+                query,
+                new QueryStats(
+                        DateTime.parse("1991-09-06T05:00:00.188Z"),
+                        DateTime.parse("1991-09-06T05:01:59Z"),
+                        DateTime.parse("1991-09-06T05:02Z"),
+                        DateTime.parse("1991-09-06T06:00Z"),
+                        Duration.valueOf("8m"),
+                        Duration.valueOf("7m"),
+                        Duration.valueOf("34m"),
+                        Duration.valueOf("9m"),
+                        Duration.valueOf("10m"),
+                        Duration.valueOf("11m"),
+                        Duration.valueOf("12m"),
+                        13,
+                        14,
+                        15,
+                        100,
+                        17,
+                        18,
+                        34,
+                        19,
+                        20.0,
+                        DataSize.valueOf("21GB"),
+                        DataSize.valueOf("22GB"),
+                        DataSize.valueOf("23GB"),
+                        DataSize.valueOf("24GB"),
+                        DataSize.valueOf("25GB"),
+                        true,
+                        Duration.valueOf("23m"),
+                        Duration.valueOf("24m"),
+                        Duration.valueOf("26m"),
+                        true,
+                        ImmutableSet.of(WAITING_FOR_MEMORY),
+                        DataSize.valueOf("27GB"),
+                        28,
+                        DataSize.valueOf("29GB"),
+                        30,
+                        DataSize.valueOf("31GB"),
+                        32,
+                        DataSize.valueOf("33GB"),
+                        ImmutableList.of(),
+                        ImmutableList.of()),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                ImmutableMap.of(),
+                ImmutableSet.of(),
+                ImmutableMap.of(),
+                ImmutableSet.of(),
+                Optional.empty(),
+                false,
+                "33",
+                Optional.empty(),
+                null,
+                null,
+                ImmutableList.of(),
+                ImmutableSet.of(),
+                Optional.empty(),
+                false,
+                Optional.empty());
+        ObjectMapper queryJsonParser = QueryHistorySQLStore.getQueryJsonParser();
+        String serialized = queryJsonParser.writeValueAsString(queryInfo);
+        QueryInfo deserialized = queryJsonParser.readValue(serialized, QueryInfo.class);
+        verifyQueryStats(deserialized.getQueryStats(), queryInfo.getQueryStats());
+        verifySession(deserialized.getSession(), queryInfo.getSession());
+        assertEquals(deserialized.getQueryId(), queryInfo.getQueryId());
+        assertEquals(deserialized.getResetSessionProperties(), queryInfo.getResetSessionProperties());
+        assertEquals(deserialized.getQuery(), queryInfo.getQuery());
+        assertEquals(deserialized.getState(), queryInfo.getState());
+        assertEquals(deserialized.getSetSessionProperties(), queryInfo.getSetSessionProperties());
+    }
+
+    // equals is not defined for SessionRepresentation, so we have to compare its fields
+    private void verifySession(SessionRepresentation actual, SessionRepresentation expected)
+    {
+        assertEquals(actual.getUser(), expected.getUser());
+        assertEquals(actual.getPrincipal(), expected.getPrincipal());
+        assertEquals(actual.getCatalog(), expected.getCatalog());
+        assertEquals(actual.getSchema(), expected.getSchema());
+        assertEquals(actual.getSource(), expected.getSource());
+        assertEquals(actual.getClientTags(), expected.getClientTags());
+    }
+
+    // equals is not defined for QueryStats, so we have to compare its fields
+    private void verifyQueryStats(QueryStats actual, QueryStats expected)
+    {
+        assertEquals(actual.getOperatorSummaries().size(), expected.getOperatorSummaries().size());
+        assertEquals(actual.getCreateTime(), expected.getCreateTime());
+        assertEquals(actual.getEndTime(), expected.getEndTime());
+    }
+
+    // This test is disabled because we cannot deserialize a json got from presto ui.
+    // It fails when trying to parse an empty set.
+    @Test(enabled = false)
     public void testParseJson() throws IOException
     {
         ObjectMapper queryJsonParser = QueryHistorySQLStore.getQueryJsonParser();

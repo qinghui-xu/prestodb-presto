@@ -20,8 +20,10 @@ import com.facebook.presto.spi.QueryId;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.guava.GuavaModule;
 import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 import com.fasterxml.jackson.datatype.joda.JodaModule;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import io.airlift.log.Logger;
@@ -52,8 +54,10 @@ public class QueryHistorySQLStore
     static {
         queryJsonParser = new ObjectMapper();
         queryJsonParser.registerModule(new Jdk8Module());
+        queryJsonParser.registerModule(new JavaTimeModule());
         queryJsonParser.registerModule(new JodaModule());
-        queryJsonParser.setDateFormat(new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'"));
+        queryJsonParser.registerModule(new GuavaModule());
+        queryJsonParser.registerModule(new PrestoQueryInfoModule());
         queryJsonParser.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
         queryJsonParser.enableDefaultTyping();
     }
@@ -63,7 +67,8 @@ public class QueryHistorySQLStore
         return queryJsonParser;
     }
 
-    private static final String CREATE_TABLE = "create table query_history (" +
+    // DDL
+    public static final String CREATE_TABLE = "create table query_history (" +
             "id bigint unsigned not null auto_increment primary key, " +
             "cluster varchar(10) not null, " +
             "query_id varchar(100) not null, " +
