@@ -38,7 +38,6 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
-import java.text.SimpleDateFormat;
 import java.util.NoSuchElementException;
 import java.util.Properties;
 
@@ -70,7 +69,7 @@ public class QueryHistorySQLStore
     // DDL
     public static final String CREATE_TABLE = "create table query_history (" +
             "id bigint unsigned not null auto_increment primary key, " +
-            "cluster varchar(10) not null, " +
+            "cluster varchar(20) not null, " +
             "query_id varchar(100) not null, " +
             "query_state varchar(10) not null, " +
             "user varchar(50) not null, " +
@@ -100,21 +99,18 @@ public class QueryHistorySQLStore
     public QueryInfo getFullQueryInfo(QueryId queryId)
     {
         try {
-            Connection connection = dataSource.getConnection();
-            try {
+            try(Connection connection = dataSource.getConnection()) {
                 PreparedStatement statement = connection.prepareStatement(SELECT_QUERY);
                 statement.setString(1, queryId.getId());
                 try {
                     ResultSet resultSet = statement.executeQuery();
+                    resultSet.next();
                     Clob json = resultSet.getClob("query_info");
                     return queryJsonParser.readValue(json.getCharacterStream(), QueryInfo.class);
                 }
                 finally {
-                    statement.close();
+                    connection.rollback();
                 }
-            }
-            finally {
-                connection.rollback();
             }
         }
         catch (Exception e) {
@@ -141,24 +137,24 @@ public class QueryHistorySQLStore
     public void saveFullQueryInfo(QueryInfo queryInfo)
     {
         try {
-            Connection connection = dataSource.getConnection();
-            try {
-                PreparedStatement insertQuery = connection.prepareStatement(INSERT_QUERY);
-                insertQuery.setString(1, getCluster());
-                insertQuery.setString(2, queryInfo.getQueryId().getId());
-                insertQuery.setString(3, queryInfo.getState().name());
-                insertQuery.setString(4, queryInfo.getSession().getUser());
-                insertQuery.setString(5, queryInfo.getSession().getSource().orElse(null));
-                insertQuery.setString(6, queryInfo.getSession().getCatalog().orElse(null));
-                insertQuery.setTimestamp(7, new Timestamp(queryInfo.getQueryStats().getCreateTime().getMillis()));
-                insertQuery.setTimestamp(8, new Timestamp(queryInfo.getQueryStats().getEndTime().getMillis()));
-                insertQuery.setString(9, queryInfo.getQuery());
-                insertQuery.setClob(10, toJsonLongText(queryInfo, connection));
-                insertQuery.execute();
-                connection.commit();
-            }
-            finally {
-                connection.rollback();
+            try(Connection connection = dataSource.getConnection()) {
+                try {
+                    PreparedStatement insertQuery = connection.prepareStatement(INSERT_QUERY);
+                    insertQuery.setString(1, getCluster());
+                    insertQuery.setString(2, queryInfo.getQueryId().getId());
+                    insertQuery.setString(3, queryInfo.getState().name());
+                    insertQuery.setString(4, queryInfo.getSession().getUser());
+                    insertQuery.setString(5, queryInfo.getSession().getSource().orElse(null));
+                    insertQuery.setString(6, queryInfo.getSession().getCatalog().orElse(null));
+                    insertQuery.setTimestamp(7, new Timestamp(queryInfo.getQueryStats().getCreateTime().getMillis()));
+                    insertQuery.setTimestamp(8, new Timestamp(queryInfo.getQueryStats().getEndTime().getMillis()));
+                    insertQuery.setString(9, queryInfo.getQuery());
+                    insertQuery.setClob(10, toJsonLongText(queryInfo, connection));
+                    insertQuery.execute();
+                    connection.commit();
+                } finally {
+                    connection.rollback();
+                }
             }
         }
         catch (Exception e) {
