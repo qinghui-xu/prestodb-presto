@@ -99,7 +99,7 @@ public class QueryHistorySQLStore
     public QueryInfo getFullQueryInfo(QueryId queryId)
     {
         try {
-            try(Connection connection = dataSource.getConnection()) {
+            try (Connection connection = dataSource.getConnection()) {
                 PreparedStatement statement = connection.prepareStatement(SELECT_QUERY);
                 statement.setString(1, queryId.getId());
                 try {
@@ -137,7 +137,7 @@ public class QueryHistorySQLStore
     public void saveFullQueryInfo(QueryInfo queryInfo)
     {
         try {
-            try(Connection connection = dataSource.getConnection()) {
+            try (Connection connection = dataSource.getConnection()) {
                 try {
                     PreparedStatement insertQuery = connection.prepareStatement(INSERT_QUERY);
                     insertQuery.setString(1, getCluster());
@@ -152,7 +152,8 @@ public class QueryHistorySQLStore
                     insertQuery.setClob(10, toJsonLongText(queryInfo, connection));
                     insertQuery.execute();
                     connection.commit();
-                } finally {
+                }
+                finally {
                     connection.rollback();
                 }
             }

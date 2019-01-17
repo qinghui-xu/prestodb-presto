@@ -26,16 +26,17 @@ import java.io.IOException;
 /**
  * This is a Jackson module to parse a presto class (with jackson annotation) from json.
  */
-public class PrestoQueryInfoModule extends SimpleModule
+public class PrestoQueryInfoModule
+        extends SimpleModule
 {
     public PrestoQueryInfoModule()
     {
         addDeserializer(Identifier.class, new IdentifierDeserializer());
     }
 
-    public static class IdentifierDeserializer extends StdDeserializer<Identifier>
+    public static class IdentifierDeserializer
+            extends StdDeserializer<Identifier>
     {
-
         public IdentifierDeserializer()
         {
             super(Identifier.class);
