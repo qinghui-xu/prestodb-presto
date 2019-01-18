@@ -24,7 +24,7 @@ import com.fasterxml.jackson.databind.module.SimpleModule;
 import java.io.IOException;
 
 /**
- * This is a Jackson module to parse a presto class (with jackson annotation) from json.
+ * This is a Jackson module to parse a presto class (without jackson annotation) from json.
  */
 public class PrestoQueryInfoModule
         extends SimpleModule

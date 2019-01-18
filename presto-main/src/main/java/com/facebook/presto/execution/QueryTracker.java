@@ -16,7 +16,6 @@ package com.facebook.presto.execution;
 import com.facebook.presto.Session;
 import com.facebook.presto.server.BasicQueryInfo;
 import com.facebook.presto.server.extension.ExtensionFactory;
-import com.facebook.presto.server.extension.query.history.QueryHistorySQLStore;
 import com.facebook.presto.server.extension.query.history.QueryHistoryStore;
 import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.spi.QueryId;
@@ -106,7 +105,7 @@ public class QueryTracker<T extends QueryExecution>
     {
         Properties config;
         config = new Properties();
-        try (InputStream configResource = QueryHistorySQLStore.class.getClassLoader().getResourceAsStream(CONFIG_RESOURCE)) {
+        try (InputStream configResource = QueryTracker.class.getClassLoader().getResourceAsStream(CONFIG_RESOURCE)) {
             config.load(configResource);
         }
         return config;
