@@ -124,7 +124,7 @@
         <module>presto-memory-context</module>
         <module>presto-proxy</module>
         <module>presto-kudu</module>
-      <module>presto-history-extension</module>
+        <module>presto-history-extension</module>
     </modules>
 
     <dependencyManagement>
