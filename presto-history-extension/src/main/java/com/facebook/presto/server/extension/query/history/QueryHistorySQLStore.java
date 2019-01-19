@@ -17,7 +17,6 @@ import com.facebook.presto.execution.QueryInfo;
 import com.facebook.presto.server.BasicQueryInfo;
 import com.facebook.presto.server.BasicQueryStats;
 import com.facebook.presto.spi.QueryId;
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.guava.GuavaModule;
@@ -27,17 +26,13 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import io.airlift.log.Logger;
+import org.jdbi.v3.core.Jdbi;
+import org.jdbi.v3.sqlobject.SqlObjectPlugin;
 
 import javax.sql.DataSource;
 
 import java.io.Closeable;
 import java.io.IOException;
-import java.sql.Clob;
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.SQLException;
-import java.sql.Timestamp;
 import java.util.NoSuchElementException;
 import java.util.Properties;
 
@@ -79,39 +74,22 @@ public class QueryHistorySQLStore
             "end_time timestamp, " +
             "query varchar(2000) not null, " +
             "query_info longtext not null);";
-    private static final String SELECT_QUERY = "select query_info from query_history where query_id = ?";
-    private static final String INSERT_QUERY = "insert into query_history(cluster, query_id, query_state, user, source," +
-            " catalog, create_time, end_time, query, query_info) values(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
-    private Properties config;
     private DataSource dataSource;
+    private QueryHistoryDAO queryHistoryDAO;
 
     @Override
     public void init(Properties props)
     {
-        config = props;
-        HikariConfig dsConf = new HikariConfig(config);
-        dsConf.setAutoCommit(false);
-        dataSource = new HikariDataSource(dsConf);
+        dataSource = new HikariDataSource(new HikariConfig(props));
+        queryHistoryDAO = Jdbi.create(dataSource).installPlugin(new SqlObjectPlugin()).onDemand(QueryHistoryDAO.class);
     }
 
     @Override
     public QueryInfo getFullQueryInfo(QueryId queryId)
     {
         try {
-            try (Connection connection = dataSource.getConnection()) {
-                PreparedStatement statement = connection.prepareStatement(SELECT_QUERY);
-                statement.setString(1, queryId.getId());
-                try {
-                    ResultSet resultSet = statement.executeQuery();
-                    resultSet.next();
-                    Clob json = resultSet.getClob("query_info");
-                    return queryJsonParser.readValue(json.getCharacterStream(), QueryInfo.class);
-                }
-                finally {
-                    connection.rollback();
-                }
-            }
+            return queryHistoryDAO.getQueryInfoByQueryId(queryId.getId());
         }
         catch (Exception e) {
             LOG.error("SQL error while getting query " + queryId, e);
@@ -136,38 +114,20 @@ public class QueryHistorySQLStore
     @Override
     public void saveFullQueryInfo(QueryInfo queryInfo)
     {
-        try {
-            try (Connection connection = dataSource.getConnection()) {
-                try {
-                    PreparedStatement insertQuery = connection.prepareStatement(INSERT_QUERY);
-                    insertQuery.setString(1, getCluster());
-                    insertQuery.setString(2, queryInfo.getQueryId().getId());
-                    insertQuery.setString(3, queryInfo.getState().name());
-                    insertQuery.setString(4, queryInfo.getSession().getUser());
-                    insertQuery.setString(5, queryInfo.getSession().getSource().orElse(null));
-                    insertQuery.setString(6, queryInfo.getSession().getCatalog().orElse(null));
-                    insertQuery.setTimestamp(7, new Timestamp(queryInfo.getQueryStats().getCreateTime().getMillis()));
-                    insertQuery.setTimestamp(8, new Timestamp(queryInfo.getQueryStats().getEndTime().getMillis()));
-                    insertQuery.setString(9, queryInfo.getQuery());
-                    insertQuery.setClob(10, toJsonLongText(queryInfo, connection));
-                    insertQuery.execute();
-                    connection.commit();
-                }
-                finally {
-                    connection.rollback();
-                }
-            }
-        }
-        catch (Exception e) {
-            LOG.error("Failed to save query " + queryInfo);
-        }
+        saveQueryHistory(queryInfo);
     }
 
-    private Clob toJsonLongText(QueryInfo queryInfo, Connection connection) throws SQLException, JsonProcessingException
+    private boolean saveQueryHistory(QueryInfo queryInfo)
     {
-        Clob jsonClob = connection.createClob();
-        jsonClob.setString(1, queryJsonParser.writeValueAsString(queryInfo));
-        return jsonClob;
+        try {
+            QueryHistory queryHistory = new QueryHistory(queryInfo);
+            queryHistoryDAO.insertQueryHistory(queryHistory);
+            return true;
+        }
+        catch (Exception e) {
+            LOG.error("Faield to save " + queryInfo, e);
+            return false;
+        }
     }
 
     @Override
