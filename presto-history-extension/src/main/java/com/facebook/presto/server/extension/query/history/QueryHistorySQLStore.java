@@ -143,8 +143,13 @@ public class QueryHistorySQLStore
         }
     }
 
-    private static String getCluster()
+    /**
+     * Find the presto cluster location, first try to use "presto.cluster", then fall back to "presto.env" - "prest.dc"
+     *
+     * @return
+     */
+    private String getCluster()
     {
-        return System.getProperty("CRITEO_ENV", "preprod") + "-" + System.getProperty("CRITEO_DC", "pa4");
+        return config.getProperty("presto.cluster", config.getProperty("presto.env", "preprod") + "-" + config.getProperty("presto.dc", "pa4"));
     }
 }
