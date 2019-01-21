@@ -31,9 +31,9 @@ public class QueryHistory
     private final String query;
     private final String queryInfo;
 
-    public QueryHistory(QueryInfo queryInfo) throws JsonProcessingException
+    public QueryHistory(QueryInfo queryInfo, String cluster) throws JsonProcessingException
     {
-        cluster = "preprod-pa4";
+        this.cluster = cluster;
         queryId = queryInfo.getQueryId().getId();
         queryState = queryInfo.getState().name();
         user = queryInfo.getSession().getUser();

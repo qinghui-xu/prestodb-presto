@@ -125,7 +125,7 @@ public class QueryHistorySQLStore
     private boolean saveQueryHistory(QueryInfo queryInfo)
     {
         try {
-            QueryHistory queryHistory = new QueryHistory(queryInfo);
+            QueryHistory queryHistory = new QueryHistory(queryInfo, getCluster());
             queryHistoryDAO.insertQueryHistory(queryHistory);
             return true;
         }
