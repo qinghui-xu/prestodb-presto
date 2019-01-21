@@ -13,6 +13,7 @@
  */
 package com.facebook.presto.server.extension.query.history;
 
+import ch.vorburger.mariadb4j.DB;
 import com.facebook.presto.SessionRepresentation;
 import com.facebook.presto.execution.QueryInfo;
 import com.facebook.presto.execution.QueryState;
@@ -25,9 +26,12 @@ import io.airlift.units.DataSize;
 import io.airlift.units.Duration;
 import org.joda.time.DateTime;
 import org.joda.time.format.DateTimeFormat;
+import org.testng.annotations.AfterGroups;
+import org.testng.annotations.BeforeGroups;
 import org.testng.annotations.Test;
 
 import java.io.IOException;
+import java.net.ServerSocket;
 import java.net.URI;
 import java.net.URL;
 import java.util.Optional;
@@ -42,6 +46,8 @@ import static org.testng.Assert.assertNotNull;
 
 public class TestQueryHistorySQLStore
 {
+    public static final String MARIA_DB_NAME = "PrestoQuery";
+
     private QueryInfo queryInfo = new QueryInfo(
             TEST_SESSION.getQueryId(),
             TEST_SESSION.toSessionRepresentation(),
@@ -111,11 +117,44 @@ public class TestQueryHistorySQLStore
             false,
             Optional.empty());
 
+    private DB mariaDB;
+
+    @BeforeGroups("MariaDB-test")
+    public void createMariaDB() throws Exception
+    {
+        ServerSocket socket = new ServerSocket(0);
+        int mariaDBPort = socket.getLocalPort();
+        socket.close();
+        mariaDB = DB.newEmbeddedDB(mariaDBPort);
+        mariaDB.start();
+        mariaDB.createDB(MARIA_DB_NAME);
+        mariaDB.run(CREATE_TABLE, null, null, MARIA_DB_NAME);
+    }
+
+    @Test(groups = "MariaDB-test")
+    public void testSaveAndReadQueryInfoWithMariaDB() throws IOException
+    {
+        String mariaDbUrl = "jdbc:mariadb://localhost:" + mariaDB.getConfiguration().getPort() + "/" + MARIA_DB_NAME;
+        testSaveAndReadQueryInfo(mariaDbUrl);
+    }
+
+    @AfterGroups("MariaDB-test")
+    public void shutdownMariaDB() throws Exception
+    {
+        mariaDB.stop();
+    }
+
     @Test
-    public void testSaveAndReadQueryInfo() throws IOException
+    public void testSaveAndReadQueryInfoWithH2() throws IOException
+    {
+        String h2dbUrl = "jdbc:h2:mem:query-store-test;INIT=" + CREATE_TABLE;
+        testSaveAndReadQueryInfo(h2dbUrl);
+    }
+
+    private void testSaveAndReadQueryInfo(String jdbcUrl) throws IOException
     {
         Properties storeConfig = new Properties();
-        storeConfig.setProperty(SQL_CONFIG_PREFIX + "jdbcUrl", "jdbc:h2:mem:query-store-test;INIT=" + CREATE_TABLE);
+        storeConfig.setProperty(SQL_CONFIG_PREFIX + "jdbcUrl", jdbcUrl);
         QueryHistorySQLStore historySQLStore = new QueryHistorySQLStore();
         historySQLStore.init(storeConfig);
         try {
