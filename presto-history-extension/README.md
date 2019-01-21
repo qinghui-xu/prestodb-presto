@@ -11,6 +11,7 @@ To enable this extension implementation for query history, you should:
 * Create a properties file in presto coordinator's the file system (e.g. `${PRESTO_ROOT}/etc/extension/history-extension.properties`)
 * In the properties file, add the extension implementation property `com.facebook.presto.server.extension.query.history.QueryHistoryStore.impl` in the property file (e.g. `com.facebook.presto.server.extension.query.history.QueryHistoryStore.impl = com.facebook.presto.server.extension.query.history.QueryHistorySQLStore`). This is the implementation that we will use for the history extension
 * In the properties file, add all the necessary jdbc properties under the namespace `sql.`, especially, `sql.jdbcUrl`, that's used to determine both jdbc connection and jdbc driver (e.g. `sql.jdbcUrl = jdbc:mariadb:://localhost:3306/DB?user=root&password=myPassword`)
+* In the properties file, define appropriate `presto.env` and `presto.dc` (or define directly `presto.cluster`) which will be used to filter the origin of the query
 * Add the jvm property `extension.query.history.config` to point to the properties file before (re)starting presto coordinator (e.g. `-Dextension.query.history.config = ${PRESTO_ROOT}/etc/extension/history-extension.properties`)
 
 ## Behind the scenes
