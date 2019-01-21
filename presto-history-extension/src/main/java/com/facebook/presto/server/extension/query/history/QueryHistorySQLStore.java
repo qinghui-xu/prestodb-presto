@@ -65,20 +65,6 @@ public class QueryHistorySQLStore
         return queryJsonParser;
     }
 
-    // DDL
-    public static final String CREATE_TABLE = "create table query_history (" +
-            "id bigint unsigned not null auto_increment primary key, " +
-            "cluster varchar(20) not null, " +
-            "query_id varchar(100) not null, " +
-            "query_state varchar(10) not null, " +
-            "user varchar(50) not null, " +
-            "source varchar(50), " +
-            "catalog varchar(20), " +
-            "create_time timestamp not null, " +
-            "end_time timestamp, " +
-            "query varchar(2000) not null, " +
-            "query_info longtext not null);";
-
     private Properties config;
     private DataSource dataSource;
     private QueryHistoryDAO queryHistoryDAO;

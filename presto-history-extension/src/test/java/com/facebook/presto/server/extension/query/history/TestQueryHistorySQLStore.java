@@ -32,7 +32,7 @@ import java.util.Properties;
 
 import static com.facebook.presto.SessionTestUtils.TEST_SESSION;
 import static com.facebook.presto.operator.BlockedReason.WAITING_FOR_MEMORY;
-import static com.facebook.presto.server.extension.query.history.QueryHistorySQLStore.CREATE_TABLE;
+import static com.facebook.presto.server.extension.query.history.QueryHistoryDAO.CREATE_TABLE;
 import static com.facebook.presto.server.extension.query.history.QueryHistorySQLStore.SQL_CONFIG_PREFIX;
 import static org.testng.Assert.assertNotNull;
 

@@ -24,6 +24,20 @@ import org.jdbi.v3.sqlobject.transaction.Transaction;
 
 public interface QueryHistoryDAO
 {
+    // DDL
+    String CREATE_TABLE = "create table query_history (" +
+            "id bigint unsigned not null auto_increment primary key, " +
+            "cluster varchar(20) not null, " +
+            "query_id varchar(100) not null, " +
+            "query_state varchar(10) not null, " +
+            "user varchar(50) not null, " +
+            "source varchar(50), " +
+            "catalog varchar(20), " +
+            "create_time timestamp not null, " +
+            "end_time timestamp, " +
+            "query varchar(2000) not null, " +
+            "query_info longtext not null);";
+
     @Transaction(TransactionIsolationLevel.READ_COMMITTED)
     @SqlUpdate("insert into query_history" +
             "(cluster, query_id, query_state, user, source, catalog, create_time, end_time, query, query_info) values" +
