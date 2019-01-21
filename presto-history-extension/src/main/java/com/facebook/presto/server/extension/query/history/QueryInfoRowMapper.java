@@ -30,7 +30,7 @@ public class QueryInfoRowMapper
     {
         Clob jsonText = rs.getClob("query_info");
         try {
-            return QueryHistorySQLStore.getQueryJsonParser().readValue(jsonText.getCharacterStream(), QueryInfo.class);
+            return QueryHistorySQLStore.deserializeQueryInfo(jsonText.getCharacterStream());
         }
         catch (IOException e) {
             throw new SQLException("Failed to parse query_info text", e);

@@ -14,8 +14,8 @@
 package com.facebook.presto.server.extension.query.history;
 
 import com.facebook.presto.execution.QueryInfo;
-import com.fasterxml.jackson.core.JsonProcessingException;
 
+import java.io.IOException;
 import java.sql.Timestamp;
 
 public class QueryHistory
@@ -31,7 +31,7 @@ public class QueryHistory
     private final String query;
     private final String queryInfo;
 
-    public QueryHistory(QueryInfo queryInfo, String cluster) throws JsonProcessingException
+    public QueryHistory(QueryInfo queryInfo, String cluster) throws IOException
     {
         this.cluster = cluster;
         queryId = queryInfo.getQueryId().getId();
@@ -43,7 +43,7 @@ public class QueryHistory
         endTime = queryInfo.getQueryStats().getEndTime() == null ?
                 null : new Timestamp((queryInfo.getQueryStats().getEndTime().getMillis()));
         query = queryInfo.getQuery();
-        this.queryInfo = QueryHistorySQLStore.getQueryJsonParser().writeValueAsString(queryInfo);
+        this.queryInfo = QueryHistorySQLStore.serializeQueryInfo(queryInfo);
     }
 
     public String getCluster()

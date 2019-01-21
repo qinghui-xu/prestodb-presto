@@ -33,6 +33,8 @@ import javax.sql.DataSource;
 
 import java.io.Closeable;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.Reader;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Properties;
@@ -58,11 +60,6 @@ public class QueryHistorySQLStore
         queryJsonParser.registerModule(new PrestoQueryInfoModule());
         queryJsonParser.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
         queryJsonParser.enableDefaultTyping();
-    }
-
-    public static ObjectMapper getQueryJsonParser()
-    {
-        return queryJsonParser;
     }
 
     private Properties config;
@@ -151,5 +148,25 @@ public class QueryHistorySQLStore
     private String getCluster()
     {
         return config.getProperty("presto.cluster", config.getProperty("presto.env", "preprod") + "-" + config.getProperty("presto.dc", "pa4"));
+    }
+
+    public static String serializeQueryInfo(QueryInfo queryInfo) throws IOException
+    {
+        return queryJsonParser.writeValueAsString(queryInfo);
+    }
+
+    public static QueryInfo deserializeQueryInfo(String json) throws IOException
+    {
+        return queryJsonParser.readValue(json, QueryInfo.class);
+    }
+
+    public static QueryInfo deserializeQueryInfo(InputStream inputStream) throws IOException
+    {
+        return queryJsonParser.readValue(inputStream, QueryInfo.class);
+    }
+
+    public static QueryInfo deserializeQueryInfo(Reader reader) throws IOException
+    {
+        return queryJsonParser.readValue(reader, QueryInfo.class);
     }
 }
