@@ -27,6 +27,7 @@ import org.joda.time.DateTime;
 import javax.annotation.concurrent.GuardedBy;
 import javax.annotation.concurrent.ThreadSafe;
 
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Collection;
@@ -55,8 +56,7 @@ public class QueryTracker<T extends QueryExecution>
 {
     private static final Logger log = Logger.get(QueryTracker.class);
 
-    private static final String CONFIG_RESOURCE = "META-INF/presto/extension/history/jdbc.properties";
-    public static final String QUERY_HISTORY_EXTENSION = "extension.query.history";
+    public static final String QUERY_HISTORY_EXTENSION_CONFIG = "extension.query.history.config";
 
     private final int maxQueryHistory;
     private final Duration minQueryExpireAge;
@@ -86,26 +86,27 @@ public class QueryTracker<T extends QueryExecution>
 
     private Optional<? extends QueryHistoryStore> loadQueryHistoryExtension()
     {
-        String queryHistoryExtension = System.getProperty(QUERY_HISTORY_EXTENSION);
-        if (queryHistoryExtension == null) {
+        String extensionConfigFile = System.getProperty(QUERY_HISTORY_EXTENSION_CONFIG);
+        if (extensionConfigFile == null) {
             return Optional.empty();
         }
-        Properties extensionProps = null;
+        Properties extensionProps;
         try {
-            extensionProps = getExtensionConf();
+            extensionProps = getExtensionConf(extensionConfigFile);
         }
         catch (IOException e) {
-            log.warn("Failed to load config for " + queryHistoryExtension);
+            log.warn("Failed to load query extension config from " + extensionConfigFile);
             return Optional.empty();
         }
-        return ExtensionFactory.INSTANCE.createExtension(queryHistoryExtension, extensionProps, QueryHistoryStore.class);
+        // The implementation class is defined as a property `com.facebook.presto.server.extension.query.history.QueryHistoryStore.impl`.
+        String extensionImplClass = extensionProps.getProperty(QueryHistoryStore.class.getName() + ".impl");
+        return ExtensionFactory.INSTANCE.createExtension(extensionImplClass, extensionProps, QueryHistoryStore.class);
     }
 
-    private Properties getExtensionConf() throws IOException
+    private Properties getExtensionConf(String extensionConfigFile) throws IOException
     {
-        Properties config;
-        config = new Properties();
-        try (InputStream configResource = QueryTracker.class.getClassLoader().getResourceAsStream(CONFIG_RESOURCE)) {
+        Properties config = new Properties();
+        try (InputStream configResource = new FileInputStream(extensionConfigFile)) {
             config.load(configResource);
         }
         return config;

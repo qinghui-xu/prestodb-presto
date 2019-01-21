@@ -27,41 +27,41 @@ public class ExtensionFactory
     /**
      * Create extension.
      *
-     * @param extensionClass The class of the extension implementation.
+     * @param extensionImplClass The class of the extension implementation.
      * @param props Properties to initialize the extension
      * @param <T> Type parameter
      * @return An Optional of the extension, empty if failed to create it.
      */
-    public <T extends Extension> Optional<T> createExtension(Class<T> extensionClass, Properties props)
+    public <T extends Extension> Optional<T> createExtension(Class<T> extensionImplClass, Properties props)
     {
         try {
-            T extension = extensionClass.getConstructor().newInstance();
+            T extension = extensionImplClass.getConstructor().newInstance();
             extension.init(props);
-            LOG.info("Created extension " + extensionClass.getName());
+            LOG.info("Created extension " + extensionImplClass.getName());
             return Optional.of(extension);
         }
         catch (Exception e) {
-            LOG.error("Failed to create extension " + extensionClass.getName(), e);
+            LOG.error("Failed to create extension " + extensionImplClass.getName(), e);
             return Optional.empty();
         }
     }
 
     /**
      *
-     * @param extensionClassName The extension implementation class name.
+     * @param extensionImplClass The extension implementation class name.
      * @param props Properties to initialize the extension.
      * @param extensionProtoType The super-class/interface that the extension should implement.
      * @param <T>
      * @return An Optional of the extension, empty if failed to create it.
      */
-    public <T extends Extension> Optional<? extends T> createExtension(String extensionClassName, Properties props, Class<T> extensionProtoType)
+    public <T extends Extension> Optional<? extends T> createExtension(String extensionImplClass, Properties props, Class<T> extensionProtoType)
     {
         try {
-            Class<? extends T> extensionClass = Class.forName(extensionClassName).asSubclass(extensionProtoType);
+            Class<? extends T> extensionClass = Class.forName(extensionImplClass).asSubclass(extensionProtoType);
             return createExtension(extensionClass, props);
         }
         catch (Exception e) {
-            LOG.error("Failed to create extension " + extensionClassName, e);
+            LOG.error("Failed to create extension " + extensionImplClass, e);
             return Optional.empty();
         }
     }

@@ -33,6 +33,7 @@ import javax.sql.DataSource;
 
 import java.io.Closeable;
 import java.io.IOException;
+import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Properties;
 
@@ -44,6 +45,9 @@ public class QueryHistorySQLStore
 {
     private static final Logger LOG = Logger.get(QueryHistorySQLStore.class);
     private static final ObjectMapper queryJsonParser;
+
+    // All jdbc connection properties should be put under this namesapce, thus `jdbcUrl` should be `sql.jdbcUrl`.
+    public static final String SQL_CONFIG_PREFIX = "sql.";
 
     static {
         queryJsonParser = new ObjectMapper();
@@ -75,14 +79,29 @@ public class QueryHistorySQLStore
             "query varchar(2000) not null, " +
             "query_info longtext not null);";
 
+    private Properties config;
     private DataSource dataSource;
     private QueryHistoryDAO queryHistoryDAO;
 
     @Override
     public void init(Properties props)
     {
-        dataSource = new HikariDataSource(new HikariConfig(props));
+        config = props;
+        dataSource = createDataSource(config);
         queryHistoryDAO = Jdbi.create(dataSource).installPlugin(new SqlObjectPlugin()).onDemand(QueryHistoryDAO.class);
+    }
+
+    private DataSource createDataSource(Properties config)
+    {
+        // Take all the sql configs to build a data source.
+        Properties sqlConfig = new Properties();
+        for (Map.Entry<Object, Object> entry : config.entrySet()) {
+            if (entry.getKey().toString().startsWith(SQL_CONFIG_PREFIX)) {
+                LOG.debug("History extension jdbc config: {} -> {}", entry.getKey(), entry.getValue());
+                sqlConfig.put(entry.getKey().toString().substring(SQL_CONFIG_PREFIX.length()), entry.getValue());
+            }
+        }
+        return new HikariDataSource(new HikariConfig(sqlConfig));
     }
 
     @Override

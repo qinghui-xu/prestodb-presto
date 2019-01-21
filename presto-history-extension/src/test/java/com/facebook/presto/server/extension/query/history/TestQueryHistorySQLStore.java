@@ -32,6 +32,8 @@ import java.util.Properties;
 
 import static com.facebook.presto.SessionTestUtils.TEST_SESSION;
 import static com.facebook.presto.operator.BlockedReason.WAITING_FOR_MEMORY;
+import static com.facebook.presto.server.extension.query.history.QueryHistorySQLStore.CREATE_TABLE;
+import static com.facebook.presto.server.extension.query.history.QueryHistorySQLStore.SQL_CONFIG_PREFIX;
 import static org.testng.Assert.assertNotNull;
 
 public class TestQueryHistorySQLStore
@@ -40,7 +42,7 @@ public class TestQueryHistorySQLStore
     public void testSaveAndReadQueryInfo() throws IOException
     {
         Properties storeConfig = new Properties();
-        storeConfig.setProperty("jdbcUrl", "jdbc:h2:mem:query-store-test;INIT=" + QueryHistorySQLStore.CREATE_TABLE);
+        storeConfig.setProperty(SQL_CONFIG_PREFIX + "jdbcUrl", "jdbc:h2:mem:query-store-test;INIT=" + CREATE_TABLE);
         QueryHistorySQLStore historySQLStore = new QueryHistorySQLStore();
         historySQLStore.init(storeConfig);
         try {
