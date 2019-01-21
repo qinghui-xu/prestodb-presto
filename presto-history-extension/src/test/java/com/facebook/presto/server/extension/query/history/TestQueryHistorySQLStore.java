@@ -42,7 +42,6 @@ import static org.testng.Assert.assertNotNull;
 
 public class TestQueryHistorySQLStore
 {
-
     private QueryInfo queryInfo = new QueryInfo(
             TEST_SESSION.getQueryId(),
             TEST_SESSION.toSessionRepresentation(),
