@@ -25,7 +25,6 @@ import com.google.common.collect.ImmutableSet;
 import io.airlift.units.DataSize;
 import io.airlift.units.Duration;
 import org.joda.time.DateTime;
-import org.joda.time.format.DateTimeFormat;
 import org.testng.annotations.AfterGroups;
 import org.testng.annotations.BeforeGroups;
 import org.testng.annotations.Test;
@@ -33,7 +32,6 @@ import org.testng.annotations.Test;
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.URI;
-import java.net.URL;
 import java.util.Optional;
 import java.util.Properties;
 
@@ -199,18 +197,5 @@ public class TestQueryHistorySQLStore
         assertEquals(actual.getOperatorSummaries().size(), expected.getOperatorSummaries().size());
         assertEquals(actual.getCreateTime(), expected.getCreateTime());
         assertEquals(actual.getEndTime(), expected.getEndTime());
-    }
-
-    // This test is disabled because we cannot deserialize a json got from presto ui.
-    // It fails when trying to parse an empty set.
-    @Test(enabled = false)
-    public void testParseJson() throws IOException
-    {
-        URL jsonResource = getClass().getClassLoader()
-                .getResource("com/facebook/presto/server/extension/query/history/query-info.json");
-        QueryInfo queryInfo = QueryHistorySQLStore.deserializeQueryInfo(jsonResource.openStream());
-        assertEquals(queryInfo.getSession().getUser(), "s.fitoussi");
-        assertEquals(queryInfo.getQueryStats().getCreateTime(),
-                DateTime.parse("2019-01-15T10:56:03.086Z", DateTimeFormat.forPattern("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'")));
     }
 }
