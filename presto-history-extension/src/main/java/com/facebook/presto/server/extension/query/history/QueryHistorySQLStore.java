@@ -39,6 +39,8 @@ import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Properties;
 
+import static java.util.Objects.requireNonNull;
+
 /**
  * Using RDBMS to store/read query history. It should support most jdbc drivers.
  */
@@ -50,6 +52,7 @@ public class QueryHistorySQLStore
 
     // All jdbc connection properties should be put under this namesapce, thus `jdbcUrl` should be `sql.jdbcUrl`.
     public static final String SQL_CONFIG_PREFIX = "sql.";
+    public static final String PRESTO_CLUSTER_KEY = "presto.cluster";
 
     static {
         queryJsonParser = new ObjectMapper();
@@ -63,6 +66,7 @@ public class QueryHistorySQLStore
     }
 
     private Properties config;
+    private String cluster;
     private DataSource dataSource;
     private QueryHistoryDAO queryHistoryDAO;
 
@@ -70,6 +74,8 @@ public class QueryHistorySQLStore
     public void init(Properties props)
     {
         config = props;
+        cluster = config.getProperty(PRESTO_CLUSTER_KEY);
+        requireNonNull(cluster, "You should define presto.cluster in your properties file.");
         dataSource = createDataSource(config);
         queryHistoryDAO = Jdbi.create(dataSource).installPlugin(new SqlObjectPlugin()).onDemand(QueryHistoryDAO.class);
         // Try to create the table if it does not exist.
@@ -142,14 +148,9 @@ public class QueryHistorySQLStore
         }
     }
 
-    /**
-     * Find the presto cluster location, first try to use "presto.cluster", then fall back to "presto.env" - "prest.dc"
-     *
-     * @return
-     */
     private String getCluster()
     {
-        return config.getProperty("presto.cluster", config.getProperty("presto.env", "preprod") + "-" + config.getProperty("presto.dc", "pa4"));
+        return cluster;
     }
 
     public static String serializeQueryInfo(QueryInfo queryInfo) throws IOException

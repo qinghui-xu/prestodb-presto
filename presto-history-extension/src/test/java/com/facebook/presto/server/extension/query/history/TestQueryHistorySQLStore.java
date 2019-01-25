@@ -38,6 +38,7 @@ import java.util.Properties;
 import static com.facebook.presto.SessionTestUtils.TEST_SESSION;
 import static com.facebook.presto.operator.BlockedReason.WAITING_FOR_MEMORY;
 import static com.facebook.presto.server.extension.query.history.QueryHistoryDAO.CREATE_TABLE;
+import static com.facebook.presto.server.extension.query.history.QueryHistorySQLStore.PRESTO_CLUSTER_KEY;
 import static com.facebook.presto.server.extension.query.history.QueryHistorySQLStore.SQL_CONFIG_PREFIX;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertNotNull;
@@ -154,6 +155,7 @@ public class TestQueryHistorySQLStore
     {
         Properties storeConfig = new Properties();
         storeConfig.setProperty(SQL_CONFIG_PREFIX + "jdbcUrl", jdbcUrl);
+        storeConfig.setProperty(PRESTO_CLUSTER_KEY, "dev");
         QueryHistorySQLStore historySQLStore = new QueryHistorySQLStore();
         historySQLStore.init(storeConfig);
         try {
