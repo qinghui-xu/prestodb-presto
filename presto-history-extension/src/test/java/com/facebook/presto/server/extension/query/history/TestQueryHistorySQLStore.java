@@ -128,9 +128,9 @@ public class TestQueryHistorySQLStore
         mariaDB = DB.newEmbeddedDB(mariaDBPort);
         mariaDB.start();
         mariaDB.createDB(MARIA_DB_NAME);
-        mariaDB.run(CREATE_TABLE, null, null, MARIA_DB_NAME);
     }
 
+    // Table does not exist upon the time the history store starts up, and will be created by the history store.
     @Test(groups = "MariaDB-test")
     public void testSaveAndReadQueryInfoWithMariaDB() throws IOException
     {
@@ -144,6 +144,7 @@ public class TestQueryHistorySQLStore
         mariaDB.stop();
     }
 
+    // Table will be created by h2 datasource, using the init script in the jdbc url. The history store then just uses it.
     @Test
     public void testSaveAndReadQueryInfoWithH2() throws IOException
     {

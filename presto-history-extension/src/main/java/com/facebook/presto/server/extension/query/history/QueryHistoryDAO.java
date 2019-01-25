@@ -38,6 +38,10 @@ public interface QueryHistoryDAO
             "query VARCHAR(2000) NOT NULL, " +
             "query_info LONGTEXT NOT NULL)";
 
+    @Transaction
+    @SqlUpdate(CREATE_TABLE)
+    void createQueryHistoryTable();
+
     @Transaction(TransactionIsolationLevel.READ_COMMITTED)
     @SqlUpdate("INSERT INTO query_history" +
             "(cluster, query_id, query_state, user, source, catalog, create_time, end_time, query, query_info) VALUES" +

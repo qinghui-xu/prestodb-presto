@@ -72,6 +72,8 @@ public class QueryHistorySQLStore
         config = props;
         dataSource = createDataSource(config);
         queryHistoryDAO = Jdbi.create(dataSource).installPlugin(new SqlObjectPlugin()).onDemand(QueryHistoryDAO.class);
+        // Try to create the table if it does not exist.
+        queryHistoryDAO.createQueryHistoryTable();
     }
 
     private DataSource createDataSource(Properties config)
