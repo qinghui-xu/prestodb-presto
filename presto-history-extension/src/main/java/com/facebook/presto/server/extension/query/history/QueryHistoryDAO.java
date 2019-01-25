@@ -25,26 +25,26 @@ import org.jdbi.v3.sqlobject.transaction.Transaction;
 public interface QueryHistoryDAO
 {
     // DDL
-    String CREATE_TABLE = "create table query_history (" +
-            "id bigint unsigned not null auto_increment primary key, " +
-            "cluster varchar(20) not null, " +
-            "query_id varchar(100) not null, " +
-            "query_state varchar(10) not null, " +
-            "user varchar(50) not null, " +
-            "source varchar(50), " +
-            "catalog varchar(20), " +
-            "create_time timestamp not null, " +
-            "end_time timestamp, " +
-            "query varchar(2000) not null, " +
-            "query_info longtext not null);";
+    String CREATE_TABLE = "CREATE TABLE IF NOT EXISTS query_history (" +
+            "id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, " +
+            "cluster VARCHAR(20) NOT NULL, " +
+            "query_id VARCHAR(100) NOT NULL, " +
+            "query_state VARCHAR(10) NOT NULL, " +
+            "user VARCHAR(50) NOT NULL, " +
+            "source VARCHAR(50), " +
+            "catalog VARCHAR(20), " +
+            "create_time TIMESTAMP NOT NULL, " +
+            "end_time TIMESTAMP, " +
+            "query VARCHAR(2000) NOT NULL, " +
+            "query_info LONGTEXT NOT NULL)";
 
     @Transaction(TransactionIsolationLevel.READ_COMMITTED)
-    @SqlUpdate("insert into query_history" +
-            "(cluster, query_id, query_state, user, source, catalog, create_time, end_time, query, query_info) values" +
+    @SqlUpdate("INSERT INTO query_history" +
+            "(cluster, query_id, query_state, user, source, catalog, create_time, end_time, query, query_info) VALUES" +
             "(:cluster, :queryId, :queryState, :user, :source, :catalog, :createTime, :endTime, :query, :queryInfo)")
     void insertQueryHistory(@BindBean QueryHistory queryHistory);
 
-    @SqlQuery("select query_info from query_history where query_id = :query_id")
+    @SqlQuery("SELECT query_info FROM query_history WHERE query_id = :query_id")
     @UseRowMapper(QueryInfoRowMapper.class)
     QueryInfo getQueryInfoByQueryId(@Bind("query_id") String queryId);
 }
