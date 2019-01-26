@@ -19,6 +19,7 @@ import com.facebook.presto.server.extension.ExtensionFactory;
 import com.facebook.presto.server.extension.query.history.QueryHistoryStore;
 import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.spi.QueryId;
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import io.airlift.log.Logger;
 import io.airlift.units.Duration;
@@ -27,6 +28,7 @@ import org.joda.time.DateTime;
 import javax.annotation.concurrent.GuardedBy;
 import javax.annotation.concurrent.ThreadSafe;
 
+import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -56,7 +58,7 @@ public class QueryTracker<T extends QueryExecution>
 {
     private static final Logger log = Logger.get(QueryTracker.class);
 
-    public static final String QUERY_HISTORY_EXTENSION_CONFIG = "extension.query.history.config";
+    public static final String QUERY_HISTORY_EXTENSION_CONFIG_FILE = "etc/extension/query-history-store.properties";
 
     private final int maxQueryHistory;
     private final Duration minQueryExpireAge;
@@ -86,30 +88,36 @@ public class QueryTracker<T extends QueryExecution>
 
     private Optional<? extends QueryHistoryStore> loadQueryHistoryExtension()
     {
-        String extensionConfigFile = System.getProperty(QUERY_HISTORY_EXTENSION_CONFIG);
-        if (extensionConfigFile == null) {
-            return Optional.empty();
-        }
         Properties extensionProps;
         try {
-            extensionProps = getExtensionConf(extensionConfigFile);
+            extensionProps = getExtensionConf();
         }
         catch (IOException e) {
-            log.warn("Failed to load query extension config from " + extensionConfigFile);
+            log.warn("Failed to load query extension config from " + QUERY_HISTORY_EXTENSION_CONFIG_FILE);
+            return Optional.empty();
+        }
+        if (extensionProps == null) {
             return Optional.empty();
         }
         // The implementation class is defined as a property `com.facebook.presto.server.extension.query.history.QueryHistoryStore.impl`.
         String extensionImplClass = extensionProps.getProperty(QueryHistoryStore.class.getName() + ".impl");
+        if (Strings.isNullOrEmpty(extensionImplClass)) {
+            return Optional.empty();
+        }
         return ExtensionFactory.INSTANCE.createExtension(extensionImplClass, extensionProps, QueryHistoryStore.class);
     }
 
-    private Properties getExtensionConf(String extensionConfigFile) throws IOException
+    private static Properties getExtensionConf() throws IOException
     {
-        Properties config = new Properties();
-        try (InputStream configResource = new FileInputStream(extensionConfigFile)) {
-            config.load(configResource);
+        File extensionPropsFile = new File(QUERY_HISTORY_EXTENSION_CONFIG_FILE);
+        if (extensionPropsFile.exists()) {
+            Properties config = new Properties();
+            try (InputStream configResource = new FileInputStream(extensionPropsFile)) {
+                config.load(configResource);
+            }
+            return config;
         }
-        return config;
+        return null;
     }
 
     public synchronized void start()
