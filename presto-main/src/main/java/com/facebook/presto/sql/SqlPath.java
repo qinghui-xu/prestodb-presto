@@ -16,6 +16,7 @@ package com.facebook.presto.sql;
 import com.facebook.presto.sql.parser.SqlParser;
 import com.facebook.presto.sql.tree.PathElement;
 import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.base.Joiner;
 
@@ -45,6 +46,7 @@ public final class SqlPath
         return rawPath;
     }
 
+    @JsonIgnore
     public List<SqlPathElement> getParsedPath()
     {
         if (parsedPath == null) {
