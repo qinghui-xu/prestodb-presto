@@ -76,7 +76,7 @@ public final class SqlPath
             return false;
         }
         SqlPath that = (SqlPath) obj;
-        return Objects.equals(parsedPath, that.parsedPath);
+        return Objects.equals(rawPath, that.rawPath);
     }
 
     @Override
