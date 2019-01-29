@@ -130,10 +130,11 @@ public class TestQueryHistorySQLStore
     }
 
     // Table does not exist upon the time the history store starts up, and will be created by the history store.
+    // Also test using mysql driver to connect to mariaDB since we use mysql jdbc dependency.
     @Test(groups = "MariaDB-test")
     public void testSaveAndReadQueryInfoWithMariaDB() throws IOException
     {
-        String mariaDbUrl = "jdbc:mariadb://localhost:" + mariaDB.getConfiguration().getPort() + "/" + MARIA_DB_NAME;
+        String mariaDbUrl = "jdbc:mysql://localhost:" + mariaDB.getConfiguration().getPort() + "/" + MARIA_DB_NAME;
         testSaveAndReadQueryInfo(mariaDbUrl);
     }
 

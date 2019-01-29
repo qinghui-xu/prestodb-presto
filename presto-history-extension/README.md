@@ -6,11 +6,10 @@ This module provides an implementation for query history extension, relying on a
 
 To enable this extension implementation for query history, you should:
 
-* Add the jar of the extension implementation (`com.facebook.presto:presto-history-extension`) into the presto coordinator classpath.
-* Add the jar of the appropriate sql jdbc (e.g. `org.mariadb.jdbc:mariadb-java-client`) into the presto coordinator classpath.
+* Add the jar of the extension implementation (`com.facebook.presto:presto-history-extension`) into the presto coordinator classpath. (We don't need to add mariadb jdbc because we can use mysql driver already bundled with presto server)
 * Create a properties file `${PRESTO_ROOT}/etc/extension/query-history-store.properties` for presto coordinator.
 * In the properties file, add the extension implementation property `com.facebook.presto.server.extension.query.history.QueryHistoryStore.impl` in the property file (e.g. `com.facebook.presto.server.extension.query.history.QueryHistoryStore.impl = com.facebook.presto.server.extension.query.history.QueryHistorySQLStore`). This is the implementation that we will use for the history extension
-* In the properties file, add all the necessary jdbc properties under the namespace `sql.`, especially, `sql.jdbcUrl`, that's used to determine both jdbc connection and jdbc driver (e.g. `sql.jdbcUrl = jdbc:mariadb:://localhost:3306/DB?user=root&password=myPassword`)
+* In the properties file, add all the necessary jdbc properties under the namespace `sql.`, especially, `sql.jdbcUrl`, that's used to determine both jdbc connection and jdbc driver (e.g. `sql.jdbcUrl = jdbc:mysql:://localhost:3306/PrestoQuery_DB?user=USER_NAME&password=PASSWORD`)
 * In the properties file, define appropriate `presto.cluster` which will be used to filter the origin of the query
 
 ## Behind the scenes
@@ -24,6 +23,6 @@ If the properties file is not present or it failed to create the extension imple
 ```
 # cat etc/query-history-store.properties
 com.facebook.presto.server.extension.query.history.QueryHistoryStore.impl = com.facebook.presto.server.extension.query.history.QueryHistorySQLStore
-sql.jdbcUrl = jdbc:mariadb:://localhost:3306/DB?user=root&password=myPassword
+sql.jdbcUrl = jdbc:mysql:://localhost:3306/PrestoQuery_DB?user=root&password=myPassword
 presto.cluster=preprod-pa4
 ```
