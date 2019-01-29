@@ -112,7 +112,7 @@ public class QueryHistorySQLStore
     {
         QueryInfo fullQueryInfo = getFullQueryInfo(queryId);
         if (fullQueryInfo == null) {
-            return null;
+            throw new NoSuchElementException("Cannot find QueryInfo from db: " + queryId);
         }
         return new BasicQueryInfo(fullQueryInfo.getQueryId(), fullQueryInfo.getSession(),
                 fullQueryInfo.getResourceGroupId(), fullQueryInfo.getState(), fullQueryInfo.getMemoryPool(),
