@@ -21,7 +21,6 @@ If the properties file is not present or it failed to create the extension imple
 ## Sample of the extension properties file
 
 ```
-# cat etc/query-history-store.properties
 com.facebook.presto.server.extension.query.history.QueryHistoryStore.impl = com.facebook.presto.server.extension.query.history.QueryHistorySQLStore
 sql.jdbcUrl = jdbc:mysql:://localhost:3306/PrestoQuery_DB?user=root&password=myPassword
 presto.cluster=preprod-pa4
