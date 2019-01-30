@@ -37,7 +37,7 @@ import java.util.Properties;
 
 import static com.facebook.presto.SessionTestUtils.TEST_SESSION;
 import static com.facebook.presto.operator.BlockedReason.WAITING_FOR_MEMORY;
-import static com.facebook.presto.server.extension.query.history.QueryHistoryDAO.CREATE_TABLE;
+import static com.facebook.presto.server.extension.query.history.QueryHistoryDAO.CREATE_TABLE_TEST;
 import static com.facebook.presto.server.extension.query.history.QueryHistorySQLStore.PRESTO_CLUSTER_KEY;
 import static com.facebook.presto.server.extension.query.history.QueryHistorySQLStore.SQL_CONFIG_PREFIX;
 import static org.testng.Assert.assertEquals;
@@ -148,7 +148,7 @@ public class TestQueryHistorySQLStore
     @Test
     public void testSaveAndReadQueryInfoWithH2() throws IOException
     {
-        String h2dbUrl = "jdbc:h2:mem:query-store-test;INIT=" + CREATE_TABLE;
+        String h2dbUrl = "jdbc:h2:mem:query-store-test;INIT=" + CREATE_TABLE_TEST;
         testSaveAndReadQueryInfo(h2dbUrl);
     }
 
@@ -160,6 +160,7 @@ public class TestQueryHistorySQLStore
         QueryHistorySQLStore historySQLStore = new QueryHistorySQLStore();
         historySQLStore.init(storeConfig);
         try {
+            historySQLStore.createTable();
             historySQLStore.saveFullQueryInfo(queryInfo);
             QueryInfo historyFromStore = historySQLStore.getFullQueryInfo(queryInfo.getQueryId());
             assertNotNull(historyFromStore);

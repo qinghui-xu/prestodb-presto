@@ -36,10 +36,27 @@ public interface QueryHistoryDAO
             "create_time TIMESTAMP NOT NULL, " +
             "end_time TIMESTAMP, " +
             "query VARCHAR(2000) NOT NULL, " +
+            "query_info LONGTEXT COMPRESSED=zlib NOT NULL)";
+
+    // DDL for test purpose (the compressed attribute is not yet supported in current MariaDB4J version for test)
+    String CREATE_TABLE_TEST = "CREATE TABLE IF NOT EXISTS query_history (" +
+            "id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, " +
+            "cluster VARCHAR(20) NOT NULL, " +
+            "query_id VARCHAR(100) NOT NULL, " +
+            "query_state VARCHAR(10) NOT NULL, " +
+            "user VARCHAR(50) NOT NULL, " +
+            "source VARCHAR(50), " +
+            "catalog VARCHAR(20), " +
+            "create_time TIMESTAMP NOT NULL, " +
+            "end_time TIMESTAMP, " +
+            "query VARCHAR(2000) NOT NULL, " +
             "query_info LONGTEXT NOT NULL)";
 
+    /**
+     *  For test only, you need to create the table in preprod/prod by using CREATE_TABLE statement before enable the extension.
+     */
     @Transaction
-    @SqlUpdate(CREATE_TABLE)
+    @SqlUpdate(CREATE_TABLE_TEST)
     void createQueryHistoryTable();
 
     @Transaction(TransactionIsolationLevel.READ_COMMITTED)

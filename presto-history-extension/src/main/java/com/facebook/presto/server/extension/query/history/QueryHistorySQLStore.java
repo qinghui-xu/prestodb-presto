@@ -23,6 +23,7 @@ import com.fasterxml.jackson.datatype.guava.GuavaModule;
 import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 import com.fasterxml.jackson.datatype.joda.JodaModule;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.google.common.annotations.VisibleForTesting;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import io.airlift.log.Logger;
@@ -78,8 +79,6 @@ public class QueryHistorySQLStore
         requireNonNull(cluster, "You should define presto.cluster in your properties file.");
         dataSource = createDataSource(config);
         queryHistoryDAO = Jdbi.create(dataSource).installPlugin(new SqlObjectPlugin()).onDemand(QueryHistoryDAO.class);
-        // Try to create the table if it does not exist.
-        queryHistoryDAO.createQueryHistoryTable();
     }
 
     private DataSource createDataSource(Properties config)
@@ -146,6 +145,16 @@ public class QueryHistorySQLStore
         if (dataSource instanceof Closeable) {
             ((Closeable) dataSource).close();
         }
+    }
+
+    /**
+     * This is to be used only in test. It creates the table without the column compression attribute (this feature not yet available for tests).
+     */
+    @VisibleForTesting
+    void createTable()
+    {
+        // Try to create the table if it does not exist.
+        queryHistoryDAO.createQueryHistoryTable();
     }
 
     private String getCluster()
