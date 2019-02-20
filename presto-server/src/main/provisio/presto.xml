@@ -25,6 +25,10 @@
         <artifact id="${project.groupId}:presto-main:${project.version}" />
     </artifactSet>
 
+    <artifactSet to="lib">
+        <artifact id="${project.groupId}:presto-history-extension:${project.version}" />
+    </artifactSet>
+
     <!-- Plugins -->
     <artifactSet to="plugin/resource-group-managers">
         <artifact id="${project.groupId}:presto-resource-group-managers:zip:${project.version}">
