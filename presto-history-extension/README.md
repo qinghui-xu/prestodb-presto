@@ -22,6 +22,6 @@ If the properties file is not present or it failed to create the extension imple
 
 ```
 com.facebook.presto.server.extension.query.history.QueryHistoryStore.impl = com.facebook.presto.server.extension.query.history.QueryHistorySQLStore
-sql.jdbcUrl = jdbc:mysql:://localhost:3306/PrestoQuery_DB?user=root&password=myPassword
+sql.jdbcUrl = jdbc:mysql://localhost:3306/PrestoQuery_DB?user=root&password=myPassword
 presto.cluster=preprod-pa4
 ```
