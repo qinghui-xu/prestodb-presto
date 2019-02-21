@@ -26,7 +26,9 @@
     </artifactSet>
 
     <artifactSet to="lib">
-        <artifact id="${project.groupId}:presto-history-extension:${project.version}" />
+        <artifact id="${project.groupId}:presto-history-extension:zip:${project.version}">
+            <unpack />
+        </artifact>
     </artifactSet>
 
     <!-- Plugins -->
