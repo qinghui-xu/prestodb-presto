@@ -87,7 +87,7 @@ public class QueryHistorySQLStore
         Properties sqlConfig = new Properties();
         for (Map.Entry<Object, Object> entry : config.entrySet()) {
             if (entry.getKey().toString().startsWith(SQL_CONFIG_PREFIX)) {
-                LOG.debug("History extension jdbc config: {} -> {}", entry.getKey(), entry.getValue());
+                LOG.debug("History extension jdbc config: %s -> %s", entry.getKey(), entry.getValue());
                 sqlConfig.put(entry.getKey().toString().substring(SQL_CONFIG_PREFIX.length()), entry.getValue());
             }
         }
