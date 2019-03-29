@@ -22,6 +22,7 @@ import com.facebook.presto.spi.memory.MemoryPoolId;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import io.airlift.log.Logger;
 import io.airlift.units.DataSize;
 import io.airlift.units.Duration;
 import org.joda.time.DateTime;
@@ -32,6 +33,7 @@ import org.testng.annotations.Test;
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.URI;
+import java.time.LocalDateTime;
 import java.util.Optional;
 import java.util.Properties;
 
@@ -42,9 +44,12 @@ import static com.facebook.presto.server.extension.query.history.QueryHistorySQL
 import static com.facebook.presto.server.extension.query.history.QueryHistorySQLStore.SQL_CONFIG_PREFIX;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertNotNull;
+import static org.testng.Assert.assertNull;
 
 public class TestQueryHistorySQLStore
 {
+    private static final Logger LOG = Logger.get(TestQueryHistorySQLStore.class);
+
     public static final String MARIA_DB_NAME = "PrestoQuery";
 
     private QueryInfo queryInfo = new QueryInfo(
@@ -121,6 +126,7 @@ public class TestQueryHistorySQLStore
     @BeforeGroups("MariaDB-test")
     public void createMariaDB() throws Exception
     {
+        LOG.info("Create MariaDB");
         ServerSocket socket = new ServerSocket(0);
         int mariaDBPort = socket.getLocalPort();
         socket.close();
@@ -138,9 +144,25 @@ public class TestQueryHistorySQLStore
         testSaveAndReadQueryInfo(mariaDbUrl);
     }
 
+    @Test(groups = "MariaDB-test", dependsOnMethods = {"testSaveAndReadQueryInfoWithMariaDB"})
+    public void testClearHistoryRetention() throws IOException
+    {
+        String mariaDbUrl = "jdbc:mysql://localhost:" + mariaDB.getConfiguration().getPort() + "/" + MARIA_DB_NAME;
+        try (QueryHistorySQLStore historySQLStore = createHistorySQLStore(mariaDbUrl)) {
+            // History is created from testSaveAndReadQueryInfoWithMariaDB
+            String historyFromStore = historySQLStore.getFullQueryInfo(queryInfo.getQueryId());
+            assertNotNull(historyFromStore);
+            historySQLStore.clearHistoryOutOfRetention(LocalDateTime.of(1992, 1, 1, 0, 0));
+            // History should be gone now.
+            historyFromStore = historySQLStore.getFullQueryInfo(queryInfo.getQueryId());
+            assertNull(historyFromStore);
+        }
+    }
+
     @AfterGroups("MariaDB-test")
     public void shutdownMariaDB() throws Exception
     {
+        LOG.info("Shutdown MariaDB");
         mariaDB.stop();
     }
 
@@ -154,11 +176,7 @@ public class TestQueryHistorySQLStore
 
     private void testSaveAndReadQueryInfo(String jdbcUrl) throws IOException
     {
-        Properties storeConfig = new Properties();
-        storeConfig.setProperty(SQL_CONFIG_PREFIX + "jdbcUrl", jdbcUrl);
-        storeConfig.setProperty(PRESTO_CLUSTER_KEY, "dev");
-        QueryHistorySQLStore historySQLStore = new QueryHistorySQLStore();
-        historySQLStore.init(storeConfig);
+        QueryHistorySQLStore historySQLStore = createHistorySQLStore(jdbcUrl);
         try {
             historySQLStore.createTable();
             historySQLStore.saveFullQueryInfo(queryInfo);
@@ -168,6 +186,16 @@ public class TestQueryHistorySQLStore
         finally {
             historySQLStore.close();
         }
+    }
+
+    private QueryHistorySQLStore createHistorySQLStore(String jdbcUrl)
+    {
+        Properties storeConfig = new Properties();
+        storeConfig.setProperty(SQL_CONFIG_PREFIX + "jdbcUrl", jdbcUrl);
+        storeConfig.setProperty(PRESTO_CLUSTER_KEY, "dev");
+        QueryHistorySQLStore historySQLStore = new QueryHistorySQLStore();
+        historySQLStore.init(storeConfig);
+        return historySQLStore;
     }
 
     @Test

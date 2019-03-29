@@ -15,6 +15,7 @@
     <properties>
         <air.main.basedir>${project.parent.basedir}</air.main.basedir>
         <air.check.fail-duplicate-finder>false</air.check.fail-duplicate-finder>
+        <dep.testng.version>6.13.1</dep.testng.version>
     </properties>
 
     <dependencies>

@@ -20,6 +20,8 @@ import org.jdbi.v3.sqlobject.statement.SqlQuery;
 import org.jdbi.v3.sqlobject.statement.SqlUpdate;
 import org.jdbi.v3.sqlobject.transaction.Transaction;
 
+import java.sql.Timestamp;
+
 public interface QueryHistoryDAO
 {
     // DDL
@@ -65,4 +67,7 @@ public interface QueryHistoryDAO
 
     @SqlQuery("SELECT query_info FROM query_history WHERE query_id = :query_id")
     String getQueryInfoByQueryId(@Bind("query_id") String queryId);
+
+    @SqlUpdate("DELETE FROM query_history WHERE create_time <= :earliest_time")
+    void clearHistoryOutOfRetention(@Bind("earliest_time") Timestamp earliestTimestamp);
 }

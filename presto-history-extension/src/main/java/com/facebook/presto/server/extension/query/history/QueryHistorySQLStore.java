@@ -40,10 +40,16 @@ import java.io.Closeable;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.Reader;
+import java.sql.Timestamp;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Properties;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 import static java.util.Objects.requireNonNull;
@@ -60,6 +66,12 @@ public class QueryHistorySQLStore
     // All jdbc connection properties should be put under this namesapce, thus `jdbcUrl` should be `sql.jdbcUrl`.
     public static final String SQL_CONFIG_PREFIX = "sql.";
     public static final String PRESTO_CLUSTER_KEY = "presto.cluster";
+    public static final String HISTORY_RETENTION_DAYS = "history.retention.days";
+    public static final String HISTORY_RETENTION_CLEAN_SCHEDULE_HOURS = "history.retention.clean.schedule.hours";
+
+    // Default value if property not set.
+    private static final int DEFAULT_HISTORY_RETENION_DAYS = 15;
+    private static final int DEFAULT_HISTORY_RETENTION_CLEAN_SCHEDULE_HOURS = 2;
 
     static {
         queryJsonParser = new ObjectMapper();
@@ -82,6 +94,8 @@ public class QueryHistorySQLStore
     private QueryHistoryDAO queryHistoryDAO;
     private List<String> basicQueryInfoProperties;
 
+    private final ScheduledExecutorService houseKeepingScheduler = Executors.newScheduledThreadPool(1, r -> new Thread(r, "history-cleaner"));
+
     @Override
     public void init(Properties props)
     {
@@ -94,6 +108,10 @@ public class QueryHistorySQLStore
         JavaType bqiType = queryJsonParser.getTypeFactory().constructType(BasicQueryInfo.class);
         List<BeanPropertyDefinition> bqiProperties = queryJsonParser.getSerializationConfig().introspect(bqiType).findProperties();
         basicQueryInfoProperties = bqiProperties.stream().map(property -> property.getName()).collect(Collectors.toList());
+
+        int retentionDays = getRetentionDays();
+        int retenionScheduleHours = getRetentionSchedulHours();
+        houseKeepingScheduler.scheduleAtFixedRate(new HistoryRentionCleaner(retentionDays), 1, retenionScheduleHours, TimeUnit.HOURS);
     }
 
     private DataSource createDataSource(Properties config)
@@ -109,6 +127,39 @@ public class QueryHistorySQLStore
         return new HikariDataSource(new HikariConfig(sqlConfig));
     }
 
+    private int getRetentionSchedulHours()
+    {
+        return getPropertyInteger(HISTORY_RETENTION_CLEAN_SCHEDULE_HOURS, DEFAULT_HISTORY_RETENTION_CLEAN_SCHEDULE_HOURS);
+    }
+
+    private int getRetentionDays()
+    {
+        return getPropertyInteger(HISTORY_RETENTION_DAYS, DEFAULT_HISTORY_RETENION_DAYS);
+    }
+
+    private int getPropertyInteger(String name, int defaultValue)
+    {
+        String retentionDaysProp = config.getProperty(name);
+        int retentionDays = defaultValue;
+        if (retentionDaysProp == null) {
+            LOG.info(name + " is undefined, use default value " + defaultValue);
+        }
+        else {
+            try {
+                retentionDays = Integer.parseUnsignedInt(retentionDaysProp);
+                if (retentionDays <= 0) {
+                    LOG.warn(name + " property <= 0, use default value " + defaultValue);
+                    retentionDays = defaultValue;
+                }
+            }
+            catch (Exception e) {
+                LOG.warn(name + " property contains invalid integer, use default value " + defaultValue);
+                retentionDays = defaultValue;
+            }
+        }
+        return retentionDays;
+    }
+
     @Override
     public String getFullQueryInfo(QueryId queryId)
     {
@@ -117,7 +168,7 @@ public class QueryHistorySQLStore
         }
         catch (Exception e) {
             LOG.error("SQL error while getting query " + queryId, e);
-            throw new NoSuchElementException("Cannot get query for " + queryId);
+            throw new RuntimeException("Cannot get query for " + queryId, e);
         }
     }
 
@@ -156,6 +207,11 @@ public class QueryHistorySQLStore
             LOG.error("Faield to save " + queryInfo, e);
             return false;
         }
+    }
+
+    public void clearHistoryOutOfRetention(LocalDateTime earliestHistory)
+    {
+        queryHistoryDAO.clearHistoryOutOfRetention(new Timestamp(earliestHistory.toEpochSecond(ZoneOffset.UTC) * 1000));
     }
 
     @Override
@@ -199,5 +255,25 @@ public class QueryHistorySQLStore
     public static QueryInfo deserializeQueryInfo(Reader reader) throws IOException
     {
         return queryJsonParser.readValue(reader, QueryInfo.class);
+    }
+
+    class HistoryRentionCleaner
+            implements Runnable
+    {
+        private final int retentionDays;
+
+        HistoryRentionCleaner(int retentionDays)
+        {
+            this.retentionDays = retentionDays;
+        }
+
+        @Override
+        public void run()
+        {
+            LocalDateTime now = LocalDateTime.now();
+            LocalDateTime earliestHistory = now.minusDays(retentionDays);
+            LOG.info("Remove query history before " + earliestHistory.toString());
+            clearHistoryOutOfRetention(earliestHistory);
+        }
     }
 }
