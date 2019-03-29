@@ -14,7 +14,6 @@
 package com.facebook.presto.execution;
 
 import com.facebook.presto.Session;
-import com.facebook.presto.server.BasicQueryInfo;
 import com.facebook.presto.server.extension.ExtensionFactory;
 import com.facebook.presto.server.extension.query.history.QueryHistoryStore;
 import com.facebook.presto.spi.PrestoException;
@@ -192,22 +191,6 @@ public class QueryTracker<T extends QueryExecution>
     {
         return tryGetQuery(queryId)
                 .orElseThrow(NoSuchElementException::new);
-    }
-
-    public BasicQueryInfo getCurrentOrPastBasicQueryInfo(QueryId queryId)
-    {
-        return tryGetQuery(queryId).map(QueryExecution::getBasicQueryInfo)
-                .orElseGet(() ->
-                        queryHistoryStore.map(store -> store.getBasicQueryInfo(queryId))
-                                .orElseThrow(NoSuchElementException::new));
-    }
-
-    public QueryInfo getCurrentOrPastFullQueryInfo(QueryId queryId)
-    {
-        return tryGetQuery(queryId).map(QueryExecution::getQueryInfo)
-                .orElseGet(() ->
-                        queryHistoryStore.map(store -> store.getFullQueryInfo(queryId))
-                                .orElseThrow(NoSuchElementException::new));
     }
 
     public Optional<T> tryGetQuery(QueryId queryId)

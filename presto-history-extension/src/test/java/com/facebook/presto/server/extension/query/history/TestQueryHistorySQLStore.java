@@ -162,7 +162,7 @@ public class TestQueryHistorySQLStore
         try {
             historySQLStore.createTable();
             historySQLStore.saveFullQueryInfo(queryInfo);
-            QueryInfo historyFromStore = historySQLStore.getFullQueryInfo(queryInfo.getQueryId());
+            String historyFromStore = historySQLStore.getFullQueryInfo(queryInfo.getQueryId());
             assertNotNull(historyFromStore);
         }
         finally {

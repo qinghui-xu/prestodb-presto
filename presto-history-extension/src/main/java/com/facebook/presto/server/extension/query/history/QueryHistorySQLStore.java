@@ -15,10 +15,14 @@ package com.facebook.presto.server.extension.query.history;
 
 import com.facebook.presto.execution.QueryInfo;
 import com.facebook.presto.server.BasicQueryInfo;
-import com.facebook.presto.server.BasicQueryStats;
 import com.facebook.presto.spi.QueryId;
 import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.JavaType;
+import com.fasterxml.jackson.databind.MapperFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.databind.introspect.BeanPropertyDefinition;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.datatype.guava.GuavaModule;
 import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 import com.fasterxml.jackson.datatype.joda.JodaModule;
@@ -36,9 +40,11 @@ import java.io.Closeable;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.Reader;
+import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Properties;
+import java.util.stream.Collectors;
 
 import static java.util.Objects.requireNonNull;
 
@@ -61,15 +67,20 @@ public class QueryHistorySQLStore
         queryJsonParser.registerModule(new JavaTimeModule());
         queryJsonParser.registerModule(new JodaModule());
         queryJsonParser.registerModule(new GuavaModule());
-        queryJsonParser.registerModule(new PrestoQueryInfoModule());
-        queryJsonParser.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-        queryJsonParser.enableDefaultTyping();
+        queryJsonParser.disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
+        queryJsonParser.disable(MapperFeature.AUTO_DETECT_CREATORS,
+                MapperFeature.AUTO_DETECT_FIELDS,
+                MapperFeature.AUTO_DETECT_GETTERS,
+                MapperFeature.AUTO_DETECT_IS_GETTERS,
+                MapperFeature.AUTO_DETECT_SETTERS);
+        queryJsonParser.disable(SerializationFeature.FAIL_ON_EMPTY_BEANS);
     }
 
     private Properties config;
     private String cluster;
     private DataSource dataSource;
     private QueryHistoryDAO queryHistoryDAO;
+    private List<String> basicQueryInfoProperties;
 
     @Override
     public void init(Properties props)
@@ -79,6 +90,10 @@ public class QueryHistorySQLStore
         requireNonNull(cluster, "You should define presto.cluster in your properties file.");
         dataSource = createDataSource(config);
         queryHistoryDAO = Jdbi.create(dataSource).installPlugin(new SqlObjectPlugin()).onDemand(QueryHistoryDAO.class);
+
+        JavaType bqiType = queryJsonParser.getTypeFactory().constructType(BasicQueryInfo.class);
+        List<BeanPropertyDefinition> bqiProperties = queryJsonParser.getSerializationConfig().introspect(bqiType).findProperties();
+        basicQueryInfoProperties = bqiProperties.stream().map(property -> property.getName()).collect(Collectors.toList());
     }
 
     private DataSource createDataSource(Properties config)
@@ -95,7 +110,7 @@ public class QueryHistorySQLStore
     }
 
     @Override
-    public QueryInfo getFullQueryInfo(QueryId queryId)
+    public String getFullQueryInfo(QueryId queryId)
     {
         try {
             return queryHistoryDAO.getQueryInfoByQueryId(queryId.getId());
@@ -107,17 +122,21 @@ public class QueryHistorySQLStore
     }
 
     @Override
-    public BasicQueryInfo getBasicQueryInfo(QueryId queryId)
+    public String getBasicQueryInfo(QueryId queryId)
     {
-        QueryInfo fullQueryInfo = getFullQueryInfo(queryId);
-        if (fullQueryInfo == null) {
+        String jsonStr = getFullQueryInfo(queryId);
+        if (jsonStr == null) {
             throw new NoSuchElementException("Cannot find QueryInfo from db: " + queryId);
         }
-        return new BasicQueryInfo(fullQueryInfo.getQueryId(), fullQueryInfo.getSession(),
-                fullQueryInfo.getResourceGroupId(), fullQueryInfo.getState(), fullQueryInfo.getMemoryPool(),
-                fullQueryInfo.isScheduled(), fullQueryInfo.getSelf(), fullQueryInfo.getQuery(),
-                new BasicQueryStats(fullQueryInfo.getQueryStats()), fullQueryInfo.getErrorType(),
-                fullQueryInfo.getErrorCode());
+        ObjectNode queryInfoJson = null;
+        try {
+            queryInfoJson = (ObjectNode) queryJsonParser.reader().readTree(jsonStr);
+            ObjectNode basicQueryInfoJson = queryInfoJson.retain(basicQueryInfoProperties);
+            return basicQueryInfoJson.toString();
+        }
+        catch (IOException e) {
+            throw new NoSuchElementException("Unparsable query Info " + jsonStr);
+        }
     }
 
     @Override

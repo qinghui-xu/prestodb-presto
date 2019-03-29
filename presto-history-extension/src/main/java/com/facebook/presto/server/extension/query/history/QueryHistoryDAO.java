@@ -13,13 +13,11 @@
  */
 package com.facebook.presto.server.extension.query.history;
 
-import com.facebook.presto.execution.QueryInfo;
 import org.jdbi.v3.core.transaction.TransactionIsolationLevel;
 import org.jdbi.v3.sqlobject.customizer.Bind;
 import org.jdbi.v3.sqlobject.customizer.BindBean;
 import org.jdbi.v3.sqlobject.statement.SqlQuery;
 import org.jdbi.v3.sqlobject.statement.SqlUpdate;
-import org.jdbi.v3.sqlobject.statement.UseRowMapper;
 import org.jdbi.v3.sqlobject.transaction.Transaction;
 
 public interface QueryHistoryDAO
@@ -66,6 +64,5 @@ public interface QueryHistoryDAO
     void insertQueryHistory(@BindBean QueryHistory queryHistory);
 
     @SqlQuery("SELECT query_info FROM query_history WHERE query_id = :query_id")
-    @UseRowMapper(QueryInfoRowMapper.class)
-    QueryInfo getQueryInfoByQueryId(@Bind("query_id") String queryId);
+    String getQueryInfoByQueryId(@Bind("query_id") String queryId);
 }

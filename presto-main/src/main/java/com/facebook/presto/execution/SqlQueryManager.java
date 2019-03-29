@@ -282,13 +282,13 @@ public class SqlQueryManager
     @Override
     public BasicQueryInfo getQueryInfo(QueryId queryId)
     {
-        return queryTracker.getCurrentOrPastBasicQueryInfo(queryId);
+        return queryTracker.getQuery(queryId).getBasicQueryInfo();
     }
 
     @Override
     public QueryInfo getFullQueryInfo(QueryId queryId)
     {
-        return queryTracker.getCurrentOrPastFullQueryInfo(queryId);
+        return queryTracker.getQuery(queryId).getQueryInfo();
     }
 
     @Override

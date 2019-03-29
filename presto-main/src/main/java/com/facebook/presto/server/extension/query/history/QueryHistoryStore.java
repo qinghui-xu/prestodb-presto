@@ -14,7 +14,6 @@
 package com.facebook.presto.server.extension.query.history;
 
 import com.facebook.presto.execution.QueryInfo;
-import com.facebook.presto.server.BasicQueryInfo;
 import com.facebook.presto.server.extension.Extension;
 import com.facebook.presto.spi.QueryId;
 
@@ -26,9 +25,9 @@ import java.io.Closeable;
 public interface QueryHistoryStore
         extends Extension, Closeable
 {
-    QueryInfo getFullQueryInfo(QueryId queryId);
+    String getFullQueryInfo(QueryId queryId);
 
-    BasicQueryInfo getBasicQueryInfo(QueryId queryId);
+    String getBasicQueryInfo(QueryId queryId);
 
     void saveFullQueryInfo(QueryInfo queryInfo);
 }
