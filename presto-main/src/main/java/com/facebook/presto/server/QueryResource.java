@@ -13,14 +13,14 @@
  */
 package com.facebook.presto.server;
 
+import com.facebook.presto.eventlistener.EventListenerManager;
 import com.facebook.presto.execution.QueryInfo;
 import com.facebook.presto.execution.QueryManager;
 import com.facebook.presto.execution.QueryState;
 import com.facebook.presto.execution.StageId;
-import com.facebook.presto.server.extension.ExtensionFactory;
 import com.facebook.presto.server.extension.query.history.QueryHistoryStore;
+import com.facebook.presto.server.extension.query.history.QueryHistoryStoreFactory;
 import com.facebook.presto.spi.QueryId;
-import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import io.airlift.log.Logger;
 
@@ -35,18 +35,12 @@ import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
 import javax.ws.rs.core.Response.Status;
 
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.IOException;
-import java.io.InputStream;
 import java.util.List;
 import java.util.Locale;
 import java.util.NoSuchElementException;
 import java.util.Optional;
-import java.util.Properties;
 
 import static com.facebook.presto.connector.system.KillQueryProcedure.createKillQueryException;
-import static com.facebook.presto.execution.QueryTracker.QUERY_HISTORY_EXTENSION_CONFIG_FILE;
 import static com.facebook.presto.spi.StandardErrorCode.ADMINISTRATIVELY_KILLED;
 import static java.util.Objects.requireNonNull;
 
@@ -59,47 +53,15 @@ public class QueryResource
     private static final Logger log = Logger.get(QueryResource.class);
 
     private final QueryManager queryManager;
+    private final EventListenerManager eventListenerManager;
     private Optional<? extends QueryHistoryStore> queryHistoryStore;
 
     @Inject
-    public QueryResource(QueryManager queryManager)
+    public QueryResource(QueryManager queryManager, EventListenerManager eventListenerManager)
     {
         this.queryManager = requireNonNull(queryManager, "queryManager is null");
-        queryHistoryStore = loadQueryHistoryExtension();
-    }
-
-    private Optional<? extends QueryHistoryStore> loadQueryHistoryExtension()
-    {
-        Properties extensionProps;
-        try {
-            extensionProps = getExtensionConf();
-        }
-        catch (IOException e) {
-            log.warn("Failed to load query extension config from " + QUERY_HISTORY_EXTENSION_CONFIG_FILE);
-            return Optional.empty();
-        }
-        if (extensionProps == null) {
-            return Optional.empty();
-        }
-        // The implementation class is defined as a property `com.facebook.presto.server.extension.query.history.QueryHistoryStore.impl`.
-        String extensionImplClass = extensionProps.getProperty(QueryHistoryStore.class.getName() + ".impl");
-        if (Strings.isNullOrEmpty(extensionImplClass)) {
-            return Optional.empty();
-        }
-        return ExtensionFactory.INSTANCE.createExtension(extensionImplClass, extensionProps, QueryHistoryStore.class);
-    }
-
-    private static Properties getExtensionConf() throws IOException
-    {
-        File extensionPropsFile = new File(QUERY_HISTORY_EXTENSION_CONFIG_FILE);
-        if (extensionPropsFile.exists()) {
-            Properties config = new Properties();
-            try (InputStream configResource = new FileInputStream(extensionPropsFile)) {
-                config.load(configResource);
-            }
-            return config;
-        }
-        return null;
+        this.eventListenerManager = eventListenerManager;
+        queryHistoryStore = QueryHistoryStoreFactory.getQueryHistoryStore();
     }
 
     @GET
